@@ -50,12 +50,26 @@ Claude Code┘      │
 | `omp_stop` | Tear the session down (confirmed teardown or an error — never a fabricated `stopped`) |
 | `omp_list` | List this bridge process's sessions |
 
+## Build
+
+```bash
+cargo build            # workspace root; vendor/omp-rpc resolves by path
+cargo test             # 9 tests: bounded ring, busy guard, timeout-never-aborts
+```
+
+Try it without an MCP client:
+
+```bash
+OMP_BRIDGE_CMD=... ./target/debug/omp-bridge repl --model opencode-go/deepseek-v4.1-flash
+```
+
 ## Configuration
 
 | Env var | Meaning |
 | --- | --- |
 | `OMP_BRIDGE_CMD` | Path to the omp executable (default: `omp` on PATH). A single executable path — never interpreted by a shell. |
 | `OMP_BRIDGE_ARGS` | Optional JSON array of prefix arguments (e.g. `["/path/to/cli.ts"]` when `OMP_BRIDGE_CMD` is `bun`) |
+| `OMP_BRIDGE_MODEL` | Default model when `omp_start` gets none (fallback: `opencode-go/deepseek-v4.1-flash`) |
 
 ## Registering the bridge
 
