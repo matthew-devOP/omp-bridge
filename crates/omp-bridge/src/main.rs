@@ -1,6 +1,7 @@
 mod core;
 mod ring;
 mod mcp;
+mod watch;
 use clap::{Parser, Subcommand};
 use rmcp::ServiceExt;
 use serde_json::json;
@@ -20,6 +21,18 @@ enum Mode {
         #[arg(long)] model: Option<String>,
         #[arg(long)] cwd: Option<String>,
         #[arg(long)] no_tools: bool,
+    },
+    /// Live colored event stream from a daemon-hosted session (read-only).
+    Watch {
+        session: String,
+        #[arg(long)] socket: Option<String>,
+        /// Raw JSONL frames instead of colored lines; pipeable.
+        #[arg(long)] json: bool,
+    },
+    /// Watch plus input: plain line = steer, >line = follow-up, !take = take control.
+    Attach {
+        session: String,
+        #[arg(long)] socket: Option<String>,
     },
 }
 #[tokio::main]
@@ -46,6 +59,16 @@ async fn main() -> anyhow::Result<()> {
                     tokio::task::spawn_blocking(move || cleanup.shutdown()).await?;
                     let _=worker.await;
                 }
+            }
+        }
+        Mode::Watch{session,socket,json} => {
+            if let Err(e)=tokio::task::spawn_blocking(move || watch::run_watch(&session,socket,json)).await? {
+                eprintln!("watch: {e}");
+            }
+        }
+        Mode::Attach{session,socket} => {
+            if let Err(e)=tokio::task::spawn_blocking(move || watch::run_attach(&session,socket)).await? {
+                eprintln!("attach: {e}");
             }
         }
     }
