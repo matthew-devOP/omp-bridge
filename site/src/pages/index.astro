@@ -1,8 +1,8 @@
 ---
 const tools = [
 	{ name: "omp_start", desc: "Spawn an omp RPC session — model pinned in argv, protocol v2 negotiated before the first command." },
-	{ name: "omp_send", desc: "Send a task. Synchronous for prompt (waits on prompt_result); steer / follow_up return admitted or queued. A client timeout never aborts the turn." },
-	{ name: "omp_events", desc: "Long-poll the session's ring buffer: monotonic cursor, explicit dropped gaps, bounded in count and bytes." },
+	{ name: "omp_send", desc: "Send a prompt (MVP: mode=prompt only). Returns a bridge operationId; wait blocks up to 25 s. A client timeout means running_or_unknown — the turn is never aborted or re-sent." },
+	{ name: "omp_events", desc: "Long-poll the session's ring buffer (cursor / kinds / wait_ms): {cursor, event} envelopes, bounded at 2048 entries and 2 MiB, explicit dropped gaps." },
 	{ name: "omp_status", desc: "running / settled / unknown — never a fabricated answer when the data is missing." },
 	{ name: "omp_abort", desc: "Abort the current turn; the session stays alive." },
 	{ name: "omp_stop", desc: "Confirmed teardown of the whole process group, or an error — never an optimistic stopped: true." },
@@ -125,7 +125,7 @@ const tools = [
 			<h2>The bridge</h2>
 			<pre class="diagram">{`Codex CLI ─┐                        ┌─ omp --mode rpc --no-ui ── OpenCode Go model
            ├── MCP (stdio) ── omp-bridge ── omp RPC (JSONL / stdio)
-Claude Code┘                        └─ one session registry per bridge process`}</pre>
+Claude Code┘                        └─ up to 4 sessions, process-local per MCP client`}</pre>
 			<p>
 				<code>omp-bridge</code> is a single Rust binary. <code>omp-bridge mcp</code> serves MCP
 				over stdio; <code>omp-bridge repl</code> is an interactive demo over the same core. The

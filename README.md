@@ -4,7 +4,9 @@ A Rust CLI that bridges **Codex CLI** and **Claude Code** to agents running unde
 **Oh My Pi (omp)** harness, over omp's native RPC mode.
 
 From either client, an agent can start an omp session, send it tasks, stream its
-events, abort a turn, and shut it down — with all of omp's harness controls intact.
+events, abort a turn, and shut it down. Sessions run isolated by default
+(`--no-session`, extensions/skills/rules/context-files/LSP/PTY/title generation off)
+so the bridge drives a clean, reproducible agent.
 
 > Status: built during a one-hour timed challenge (2026-10-30). Expect MVP scope.
 
@@ -27,24 +29,25 @@ scraping.
 Codex CLI ─┐                       ┌─ omp --mode rpc --no-ui ── OpenCode Go model
            ├─ MCP (stdio) ── omp-bridge ── omp RPC (JSONL/stdio)
 Claude Code┘      │
-                  └─ one omp session per bridge process (sessions are
-                     process-local: each MCP client controls its own agents)
+                  └─ up to 4 concurrent omp sessions per bridge process
+                     (process-local: each MCP client controls its own agents)
 ```
 
 - `crates/omp-bridge` — the binary: `omp-bridge mcp` (MCP stdio server) and
   `omp-bridge repl` (interactive demo).
 - `vendor/omp-rpc` — the Rust client for omp's RPC protocol, vendored from
-  [oh-my-pi](https://github.com/can1357/oh-my-pi) (`sdk/rust/omp-rpc`, MIT);
-  see `vendor/omp-rpc/PROVENANCE.md` for the exact commit.
+  [Annonymous-MTW/oh-my-pi](https://github.com/Annonymous-MTW/oh-my-pi)
+  (`sdk/rust/omp-rpc`, MIT) at commit `6f3fbc94c567c0ac619c013dd15d718356eecba1`;
+  see `vendor/omp-rpc/PROVENANCE.md`.
 - `site/` — the Astro presentation page.
 
 ## MCP tools
 
 | Tool | What it does |
 | --- | --- |
-| `omp_start` | Spawn an omp RPC session (model passed in argv), negotiate protocol v2 |
-| `omp_send` | Send a task. Synchronous by default for `prompt` (waits on `prompt_result`); `steer`/`follow_up` return `admitted`/`queued`. A timeout does **not** abort the turn. |
-| `omp_events` | Long-poll the session's event ring buffer (cursor + explicit `dropped` gaps) |
+| `omp_start` | Spawn an omp RPC session (model passed in argv), negotiate protocol v2. `no_tools: true` gives an inference-only session. |
+| `omp_send` | Send a prompt (MVP supports `mode: "prompt"` only). Returns a bridge `operationId`; with `wait` (default) it blocks up to `timeout_ms` (max 25 s). On timeout the status is `running_or_unknown` — the turn is **never** aborted or re-sent; follow up with `omp_events`/`omp_status`/`omp_abort`. `assistant_text` is capped at 64 KiB with an explicit truncation marker. |
+| `omp_events` | Long-poll (`cursor`, `kinds`, `wait_ms`) the session's ring buffer — `{cursor, event}` envelopes, bounded at 2048 entries / 2 MiB, with explicit `dropped` gaps |
 | `omp_status` | Session state: `running` / `settled` / `unknown`, model, pending work |
 | `omp_abort` | Abort the current turn (session stays alive) |
 | `omp_stop` | Tear the session down (confirmed teardown or an error — never a fabricated `stopped`) |
@@ -53,14 +56,14 @@ Claude Code┘      │
 ## Build
 
 ```bash
-cargo build            # workspace root; vendor/omp-rpc resolves by path
-cargo test             # 9 tests: bounded ring, busy guard, timeout-never-aborts
+cargo build --release --locked   # workspace root; vendor/omp-rpc resolves by path
+cargo test                       # 11 tests: bounded ring, busy guard, timeout-never-aborts
 ```
 
-Try it without an MCP client:
+The binary lands at `target/release/omp-bridge`. Try it without an MCP client:
 
 ```bash
-OMP_BRIDGE_CMD=... ./target/debug/omp-bridge repl --model opencode-go/deepseek-v4.1-flash
+OMP_BRIDGE_CMD=... ./target/release/omp-bridge repl --model opencode-go/deepseek-v4.1-flash
 ```
 
 ## Configuration
@@ -73,10 +76,14 @@ OMP_BRIDGE_CMD=... ./target/debug/omp-bridge repl --model opencode-go/deepseek-v
 
 ## Registering the bridge
 
+Both clients need `OMP_BRIDGE_CMD` (or `omp` on PATH) so the bridge can find omp.
+
 **Claude Code:**
 
 ```bash
-claude mcp add omp-bridge -- /path/to/omp-bridge mcp
+claude mcp add omp-bridge \
+  --env OMP_BRIDGE_CMD=/path/to/omp \
+  -- /path/to/omp-bridge mcp
 ```
 
 **Codex CLI** (`~/.codex/config.toml`):
@@ -85,11 +92,20 @@ claude mcp add omp-bridge -- /path/to/omp-bridge mcp
 [mcp_servers.omp_bridge]
 command = "/path/to/omp-bridge"
 args = ["mcp"]
+env = { OMP_BRIDGE_CMD = "/path/to/omp" }
 ```
 
 ## Demo
 
-End-to-end from Claude Code on macOS (M2), 2026-10-30 — full transcript in
+Both goal criteria ran live on 2026-10-30, each from its own machine and MCP client.
+
+**Codex CLI (i9)** — transcript in
+[`demo/codex-i9-e2e-transcript.txt`](demo/codex-i9-e2e-transcript.txt), machine-readable
+proof in [`evidence/codex-i9-final.json`](evidence/codex-i9-final.json): exact
+`OMP_BRIDGE_FINAL_OK` reply, `prompt_result.sessionSettled` + `session_settled`
+observed, teardown confirmed with `stopped: true`.
+
+**Claude Code (M2)** — full transcript in
 [`demo/claude-m2-e2e-transcript.txt`](demo/claude-m2-e2e-transcript.txt):
 
 1. `omp_start` (model `opencode-go/deepseek-v4.1-flash`) → `session-1`, protocol v2
