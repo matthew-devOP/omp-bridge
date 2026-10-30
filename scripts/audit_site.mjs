@@ -132,7 +132,7 @@ try {
     })()`);
   } catch(error) { report.checks.copy = {verified:false,error:error.message}; }
   await cdp('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
-  await evaluate('scrollTo(0,0)'); await sleep(250);
+  await evaluate("scrollTo({top:0,left:0,behavior:'instant'})"); await sleep(250);
   report.checks.mobile = await layout(); await screenshot('mobile-390x844.png');
   await cdp('Emulation.setEmulatedMedia', {features:[{name:'prefers-reduced-motion',value:'reduce'}]});
   await navigate();

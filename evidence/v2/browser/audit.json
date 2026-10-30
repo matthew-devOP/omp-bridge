@@ -1,0 +1,203 @@
+{
+  "schema": 1,
+  "auditedAt": "2026-10-30T02:58:21.226Z",
+  "target": "http://127.0.0.1:18763",
+  "browser": "Chrome headless, isolated temporary profile, default sandbox",
+  "errors": [],
+  "checks": {
+    "desktop": {
+      "width": 1920,
+      "height": 1080,
+      "documentWidth": 1905,
+      "clientWidth": 1905,
+      "horizontalOverflow": false,
+      "title": "omp-bridge \u2014 structured control for Oh My Pi agents",
+      "overflowingElements": [],
+      "brokenImages": []
+    },
+    "tabs": [
+      {
+        "name": "omp_start",
+        "selected": "true",
+        "panelHeading": "omp_start",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_send",
+        "selected": "true",
+        "panelHeading": "omp_send",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_steer",
+        "selected": "true",
+        "panelHeading": "omp_steer",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_follow_up",
+        "selected": "true",
+        "panelHeading": "omp_follow_up",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_promote_queued_message",
+        "selected": "true",
+        "panelHeading": "omp_promote_queued_message",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_take_control",
+        "selected": "true",
+        "panelHeading": "omp_take_control",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_events",
+        "selected": "true",
+        "panelHeading": "omp_events",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_status",
+        "selected": "true",
+        "panelHeading": "omp_status",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_messages",
+        "selected": "true",
+        "panelHeading": "omp_messages",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_set_model",
+        "selected": "true",
+        "panelHeading": "omp_set_model",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_compact",
+        "selected": "true",
+        "panelHeading": "omp_compact",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_abort",
+        "selected": "true",
+        "panelHeading": "omp_abort",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_stop",
+        "selected": "true",
+        "panelHeading": "omp_stop",
+        "headingMatches": true,
+        "selectedCount": 1
+      },
+      {
+        "name": "omp_list",
+        "selected": "true",
+        "panelHeading": "omp_list",
+        "headingMatches": true,
+        "selectedCount": 1
+      }
+    ],
+    "replay": {
+      "present": true,
+      "totalLines": 48,
+      "immediateVisible": 0,
+      "visibleAfterWait": 48,
+      "waitMs": 7700,
+      "maxDelay": 7200,
+      "completedWithinAuditWindow": true
+    },
+    "copy": [
+      {
+        "name": "claude",
+        "label": "copied \u2713",
+        "clipboardMatches": true,
+        "characters": 94
+      },
+      {
+        "name": "codex",
+        "label": "copied \u2713",
+        "clipboardMatches": true,
+        "characters": 113
+      }
+    ],
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "documentWidth": 390,
+      "clientWidth": 390,
+      "horizontalOverflow": false,
+      "title": "omp-bridge \u2014 structured control for Oh My Pi agents",
+      "overflowingElements": [],
+      "brokenImages": []
+    },
+    "reducedMotion": {
+      "matches": true,
+      "videos": [
+        {
+          "paused": true,
+          "autoplay": false,
+          "controls": true
+        },
+        {
+          "paused": true,
+          "autoplay": false,
+          "controls": true
+        },
+        {
+          "paused": true,
+          "autoplay": false,
+          "controls": true
+        },
+        {
+          "paused": true,
+          "autoplay": false,
+          "controls": true
+        },
+        {
+          "paused": true,
+          "autoplay": false,
+          "controls": true
+        },
+        {
+          "paused": true,
+          "autoplay": false,
+          "controls": true
+        }
+      ],
+      "smil": [
+        {
+          "paused": true
+        }
+      ]
+    }
+  },
+  "screenshots": [
+    "desktop-1920x1080.png",
+    "desktop-replay.png",
+    "mobile-390x844.png"
+  ],
+  "limitations": [
+    "DOM click dispatch exercises handlers; not a full physical-pointer or accessibility audit.",
+    "Local static deployment only; no claim about a published website."
+  ],
+  "passed": true,
+  "auditedSiteCommit": "441acb2"
+}
