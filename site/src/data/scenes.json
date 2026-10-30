@@ -49,7 +49,7 @@
         { "t": 1700, "kind": "agent", "text": "agent_start" },
         { "t": 2400, "kind": "msg", "text": "claude▸ omp_events  — attached mid-run, replaying from cursor 0" },
         { "t": 3100, "kind": "transfer", "text": "claude▸ omp_take_control  reason=\"operator handoff\"" },
-        { "t": 3400, "kind": "transfer", "text": "bridge_control_transfer  from=codex → to=claude  — codex sees it too" },
+        { "t": 3400, "kind": "transfer", "text": "controller_changed  codex → claude  leaseEpoch=2  — codex sees it too" },
         { "t": 4000, "kind": "call", "text": "claude▸ omp_follow_up  \"now summarize in one line\"" },
         { "t": 5200, "kind": "result", "text": "prompt_result  completed · session_settled" }
       ]
