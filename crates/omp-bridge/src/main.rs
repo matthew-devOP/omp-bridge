@@ -1,6 +1,5 @@
-mod core;
-mod ring;
-mod mcp;
+use omp_bridge::{core,mcp,daemon,backend::Backend};
+use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use rmcp::ServiceExt;
 use serde_json::json;
@@ -14,7 +13,9 @@ struct Cli { #[command(subcommand)] command: Mode }
 #[derive(Subcommand)]
 enum Mode {
     /// MCP over stdin/stdout. Diagnostics go to stderr.
-    Mcp,
+    Mcp { #[arg(long)] daemon:bool, #[arg(long)] socket:Option<PathBuf> },
+    /// Shared agent daemon on a private Unix socket.
+    Serve { #[arg(long)] socket:Option<PathBuf> },
     /// Interactive local session; not an attachment to another MCP client's session.
     Repl {
         #[arg(long)] model: Option<String>,
@@ -26,11 +27,23 @@ enum Mode {
 async fn main() -> anyhow::Result<()> {
     let manager=core::Manager::default();
     match Cli::parse().command {
-        Mode::Mcp => {
-            let service=mcp::Bridge{manager:manager.clone()}.serve((tokio::io::stdin(),tokio::io::stdout())).await?;
+        Mode::Mcp{daemon:shared,socket} => {
+            let backend=if shared { Backend::Shared(daemon::DaemonClient::connect(socket,"mcp")?) } else {Backend::Local(manager.clone())};
+            let service=mcp::Bridge{backend}.serve((tokio::io::stdin(),tokio::io::stdout())).await?;
             tokio::select! {
                 result=service.waiting() => { if let Err(e)=result { eprintln!("MCP transport closed: {e}"); } },
                 _=tokio::signal::ctrl_c() => {},
+            }
+        },
+        Mode::Serve{socket} => {
+            let stopped=Arc::new(AtomicBool::new(false));
+            let flag=stopped.clone();
+            let mut worker=tokio::task::spawn_blocking(move||daemon::serve(socket,flag));
+            let mut term=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            tokio::select! {
+                result=&mut worker=>{result??;},
+                _=tokio::signal::ctrl_c()=>{stopped.store(true,Ordering::SeqCst);worker.await??;},
+                _=term.recv()=>{stopped.store(true,Ordering::SeqCst);worker.await??;},
             }
         },
         Mode::Repl{model,cwd,no_tools} => {
