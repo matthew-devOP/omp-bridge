@@ -269,6 +269,14 @@ const timeline = [
 			}
 			.copy:hover { color: var(--blue); border-color: var(--blue); }
 
+			/* ---------- use cases ---------- */
+			.uc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+			.uc { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+			.uc.wide { grid-column: 1 / -1; }
+			.uc video { width: 100%; display: block; background: #0a0e14; }
+			.uc figcaption { padding: 0.8rem 1.1rem 1rem; color: var(--muted); font-size: 0.92rem; }
+			.uc figcaption strong { color: var(--text); }
+
 			footer {
 				margin-top: 6rem; padding-top: 1.5rem;
 				border-top: 1px solid var(--border);
@@ -277,7 +285,7 @@ const timeline = [
 			}
 
 			@media (max-width: 900px) {
-				.term-grid, .explorer, .ba, .reg-grid { grid-template-columns: 1fr; }
+				.term-grid, .explorer, .ba, .reg-grid, .uc-grid { grid-template-columns: 1fr; }
 				.hero { padding-top: 3rem; }
 				main { padding: 0 1.1rem 4rem; }
 			}
@@ -388,6 +396,53 @@ const timeline = [
 				<div class="explorer">
 					<div class="tool-list" id="toolList" role="tablist" aria-label="MCP tools"></div>
 					<div class="tool-detail" id="toolDetail" role="tabpanel"></div>
+				</div>
+			</section>
+
+			<!-- ================= USE CASES ================= -->
+			<section id="usecases">
+				<div class="kicker">five ways to use it</div>
+				<h2>What agent control looks like</h2>
+				<p class="lead">
+					Illustrated walkthroughs of the core flows. The tool and event names are the real ones
+					from the code; timings and file names in the frames are illustrative.
+				</p>
+				<div class="uc-grid">
+					<figure class="uc wide">
+						<video autoplay loop muted playsinline poster="/anim/handoff-poster.png" aria-label="Animation: Codex starts an agent through the daemon, Claude attaches read-only, takes control with an explicit transfer event, then sends a follow-up">
+							<source src="/anim/handoff.webm" type="video/webm" />
+							<source src="/anim/handoff.mp4" type="video/mp4" />
+						</video>
+						<figcaption><strong>Control handoff</strong> — two clients, one agent: attach, read the backlog, take the lease with a visible <code>controller_changed</code>, continue the work.</figcaption>
+					</figure>
+					<figure class="uc">
+						<video autoplay loop muted playsinline poster="/anim/steer-poster.png" aria-label="Animation: a running agent is steered mid-turn and visibly changes direction without restarting the turn">
+							<source src="/anim/steer.webm" type="video/webm" />
+							<source src="/anim/steer.mp4" type="video/mp4" />
+						</video>
+						<figcaption><strong>Mid-turn steer</strong> — redirect a running task without losing the turn.</figcaption>
+					</figure>
+					<figure class="uc">
+						<video autoplay loop muted playsinline poster="/anim/delegate-poster.png" aria-label="Animation: Claude delegates a task to a cheap model through the bridge and only collects the result">
+							<source src="/anim/delegate.webm" type="video/webm" />
+							<source src="/anim/delegate.mp4" type="video/mp4" />
+						</video>
+						<figcaption><strong>Delegation</strong> — hand a task to a cheaper model, keep working, collect the result.</figcaption>
+					</figure>
+					<figure class="uc">
+						<video autoplay loop muted playsinline poster="/anim/watch-poster.png" aria-label="Animation: the omp-bridge watch command rendering a colored live event stream in a terminal">
+							<source src="/anim/watch.webm" type="video/webm" />
+							<source src="/anim/watch.mp4" type="video/mp4" />
+						</video>
+						<figcaption><strong>Human view</strong> — <code>omp-bridge watch</code>: the live event stream, colored, in any terminal.</figcaption>
+					</figure>
+					<figure class="uc">
+						<video autoplay loop muted playsinline poster="/anim/timeout-poster.png" aria-label="Animation: a client timeout returns running or unknown while the agent keeps working; the result arrives later on the event stream">
+							<source src="/anim/timeout.webm" type="video/webm" />
+							<source src="/anim/timeout.mp4" type="video/mp4" />
+						</video>
+						<figcaption><strong>Honest timeout</strong> — the client stops waiting; the agent doesn't stop working. The result lands on <code>omp_events</code>.</figcaption>
+					</figure>
 				</div>
 			</section>
 
