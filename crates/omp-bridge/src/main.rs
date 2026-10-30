@@ -25,15 +25,18 @@ enum Mode {
     },
     /// Live colored event stream from a daemon-hosted session (read-only).
     Watch {
-        session: String,
-        #[arg(long)] socket: Option<String>,
+        #[arg(required_unless_present = "all", conflicts_with = "all")]
+        session: Option<String>,
+        /// Observe every current and newly started daemon session.
+        #[arg(long, conflicts_with = "session")] all: bool,
+        #[arg(long)] socket: Option<PathBuf>,
         /// Raw JSONL frames instead of colored lines; pipeable.
         #[arg(long)] json: bool,
     },
     /// Watch plus input: plain line = steer, >line = follow-up, !take = take control.
     Attach {
         session: String,
-        #[arg(long)] socket: Option<String>,
+        #[arg(long)] socket: Option<PathBuf>,
     },
     /// Check omp, RPC v2 and the daemon socket. --live sends one minimal inference to verify access.
     Doctor {
@@ -79,14 +82,26 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Mode::Watch{session,socket,json} => {
-            if let Err(e)=tokio::task::spawn_blocking(move || watch::run_watch(&session,socket,json)).await? {
-                eprintln!("watch: {e}");
+        Mode::Watch{session,socket,json,all} => {
+            let cancel=Arc::new(AtomicBool::new(false));
+            let flag=cancel.clone();
+            let mut worker=tokio::task::spawn_blocking(move || watch::run_watch(session,socket,json,all,flag));
+            let mut term=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            tokio::select! {
+                result=&mut worker => { result??; },
+                _=tokio::signal::ctrl_c()=>{cancel.store(true,Ordering::SeqCst);worker.await??;},
+                _=term.recv()=>{cancel.store(true,Ordering::SeqCst);worker.await??;},
             }
         }
         Mode::Attach{session,socket} => {
-            if let Err(e)=tokio::task::spawn_blocking(move || watch::run_attach(&session,socket)).await? {
-                eprintln!("attach: {e}");
+            let cancel=Arc::new(AtomicBool::new(false));
+            let flag=cancel.clone();
+            let mut worker=tokio::task::spawn_blocking(move || watch::run_attach(session,socket,flag));
+            let mut term=tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            tokio::select! {
+                result=&mut worker => { result??; },
+                _=tokio::signal::ctrl_c()=>{cancel.store(true,Ordering::SeqCst);worker.await??;},
+                _=term.recv()=>{cancel.store(true,Ordering::SeqCst);worker.await??;},
             }
         }
         Mode::Doctor{socket,live} => {

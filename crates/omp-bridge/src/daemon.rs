@@ -62,19 +62,30 @@ impl Drop for ClientIdentity {
 }
 impl DaemonClient {
     pub fn connect(socket: Option<PathBuf>, name: &str) -> Result<Self> {
+        Self::connect_with_timeout(socket,name,Duration::from_secs(75))
+    }
+
+    /// Connect with an overall deadline, including hello. Useful for interactive views.
+    pub fn connect_with_timeout(socket:Option<PathBuf>,name:&str,timeout:Duration)->Result<Self> {
+        let deadline=deadline_after(timeout)?;
         let socket = socket.unwrap_or_else(default_socket);
-        let response = exchange(&socket, &Request {
+        let response = exchange_before(&socket, &Request {
             id: next_request_id(), client_id: None, method: "hello".into(),
             params: json!({"name":name}),
-        })?;
+        },deadline)?;
         let client_id = response["client_id"].as_str().ok_or_else(|| anyhow!("invalid_daemon_hello"))?.to_owned();
         Ok(Self {identity:Arc::new(ClientIdentity {socket,client_id})})
     }
 
     pub fn call(&self, method: &str, params: Value) -> Result<Value> {
-        exchange(&self.identity.socket, &Request {
-            id:next_request_id(), client_id:Some(self.identity.client_id.clone()), method:method.into(), params,
-        })
+        self.call_with_timeout(method,params,Duration::from_secs(75))
+    }
+
+    /// Deadline only limits observation; a timed-out mutation is never retried or aborted.
+    pub fn call_with_timeout(&self,method:&str,params:Value,timeout:Duration)->Result<Value> {
+        exchange_before(&self.identity.socket,&Request {
+            id:next_request_id(),client_id:Some(self.identity.client_id.clone()),method:method.into(),params,
+        },deadline_after(timeout)?)
     }
 
     pub fn client_id(&self) -> &str { &self.identity.client_id }
@@ -85,16 +96,24 @@ fn next_request_id() -> String {
     format!("{}-{}",std::process::id(), REQUEST_ID.fetch_add(1, Ordering::Relaxed))
 }
 
-fn exchange(socket: &Path, request: &Request) -> Result<Value> {
-    exchange_before(socket,request,Instant::now()+Duration::from_secs(75))
+fn deadline_after(timeout:Duration)->Result<Instant> {
+    if timeout.is_zero() {bail!("invalid_timeout");}
+    Instant::now().checked_add(timeout).ok_or_else(||anyhow!("invalid_timeout"))
 }
 
 fn exchange_before(socket:&Path,request:&Request,deadline:Instant)->Result<Value> {
     let mut stream=connect_before(socket,deadline).context("daemon_unavailable")?;
-    stream.set_write_timeout(Some(remaining(deadline)?.min(Duration::from_secs(5))))?;
-    write_frame(&mut stream,&serde_json::to_value(request)?)?;
-    stream.set_read_timeout(Some(remaining(deadline)?))?;
-    let response=read_frame(&mut BufReader::new(stream))?;
+    let mut frame=serde_json::to_vec(request)?;
+    frame.push(b'\n');
+    if frame.len()>MAX_FRAME {bail!("frame_too_large");}
+    let mut offset=0;
+    while offset<frame.len() {
+        stream.set_write_timeout(Some(remaining(deadline)?.min(Duration::from_secs(5))))?;
+        let written=stream.write(&frame[offset..])?;
+        if written==0 {bail!("daemon_write_closed");}
+        offset+=written;
+    }
+    let response=read_response_before(&mut stream,deadline)?;
     if response.get("id").and_then(Value::as_str) != Some(&request.id) { bail!("daemon_response_id_mismatch"); }
     if response["ok"] == true {return Ok(response.get("result").cloned().unwrap_or(Value::Null));}
     let code=response["error"]["code"].as_str().unwrap_or("daemon_error");
@@ -102,11 +121,29 @@ fn exchange_before(socket:&Path,request:&Request,deadline:Instant)->Result<Value
     bail!("{code}: {message}")
 }
 
+fn read_response_before(stream:&mut UnixStream,deadline:Instant)->Result<Value> {
+    let mut bytes=Vec::new();
+    let mut chunk=[0u8;8192];
+    loop {
+        // Recompute before every read: a trickle of partial data cannot reset
+        // the overall deadline and freeze a human view or last-clone cleanup.
+        stream.set_read_timeout(Some(remaining(deadline)?))?;
+        let count=stream.read(&mut chunk)?;
+        if count==0 {bail!("daemon_response_closed");}
+        if bytes.len()+count>MAX_FRAME {bail!("frame_too_large");}
+        bytes.extend_from_slice(&chunk[..count]);
+        if let Some(end)=bytes.iter().position(|byte|*byte==b'\n') {
+            return serde_json::from_slice(&bytes[..end]).map_err(|_|anyhow!("invalid_json"));
+        }
+    }
+}
+
 fn remaining(deadline:Instant)->Result<Duration> {
     deadline.checked_duration_since(Instant::now()).filter(|v|!v.is_zero()).ok_or_else(||anyhow!("daemon_timeout"))
 }
 
 fn connect_before(path:&Path,deadline:Instant)->Result<UnixStream> {
+    remaining(deadline)?;
     let mut address:libc::sockaddr_un=unsafe {std::mem::zeroed()};
     let path=path.as_os_str().as_bytes();
     if path.len()>=address.sun_path.len() || path.contains(&0) {bail!("invalid_socket_path");}
@@ -546,6 +583,38 @@ mod tests {
         let start=Instant::now();drop(client);
         assert!(start.elapsed()<Duration::from_millis(300));
         server.join().unwrap();fs::remove_file(socket).unwrap();fs::remove_dir(dir).unwrap();
+    }
+    #[test]
+    fn configurable_hello_and_call_timeouts_bound_unresponsive_daemons() {
+        for hello in [true,false] {
+            let dir=PathBuf::from("/tmp").join(format!("omp-timeout-{}",&random_id().unwrap()[..12]));
+            fs::create_dir(&dir).unwrap();let socket=dir.join("bridge.sock");
+            let listener=UnixListener::bind(&socket).unwrap();
+            let server=thread::spawn(move || {let (_stream,_)=listener.accept().unwrap();thread::sleep(Duration::from_millis(350));});
+            let client=DaemonClient{identity:Arc::new(ClientIdentity{socket:socket.clone(),client_id:"test-client".into()})};
+            let start=Instant::now();
+            let failed=if hello {
+                DaemonClient::connect_with_timeout(Some(socket.clone()),"test",Duration::from_millis(100)).is_err()
+            } else {client.call_with_timeout("ping",json!({}),Duration::from_millis(100)).is_err()};
+            let elapsed=start.elapsed();
+            assert!(failed);assert!(elapsed<Duration::from_millis(300),"deadline elapsed {elapsed:?}");
+            server.join().unwrap();drop(client);
+            fs::remove_file(socket).unwrap();fs::remove_dir(dir).unwrap();
+        }
+    }
+    #[test]
+    fn partial_response_trickle_does_not_extend_call_deadline() {
+        let dir=PathBuf::from("/tmp").join(format!("omp-timeout-{}",&random_id().unwrap()[..12]));
+        fs::create_dir(&dir).unwrap();let socket=dir.join("bridge.sock");
+        let listener=UnixListener::bind(&socket).unwrap();
+        let server=thread::spawn(move || {
+            let (mut stream,_)=listener.accept().unwrap();
+            for _ in 0..12 {if stream.write_all(b" ").is_err(){break;}thread::sleep(Duration::from_millis(30));}
+        });
+        let client=DaemonClient{identity:Arc::new(ClientIdentity{socket:socket.clone(),client_id:"test-client".into()})};
+        let start=Instant::now();assert!(client.call_with_timeout("ping",json!({}),Duration::from_millis(100)).is_err());
+        assert!(start.elapsed()<Duration::from_millis(250));
+        server.join().unwrap();drop(client);fs::remove_file(socket).unwrap();fs::remove_dir(dir).unwrap();
     }
     #[test]
     fn unrelated_client_reads_do_not_wait_for_a_session_admission_lock() {

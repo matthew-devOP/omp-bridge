@@ -286,7 +286,7 @@ fn watch_json_observes_attach_transfer_and_one_follow_up() {
 
     let mut attach = Process(bridge(&["attach", session, "--socket", socket.to_str().unwrap()], &temp));
     let mut input = attach.0.stdin.take().unwrap();
-    input.write_all(b"!take\n>attached follow-up exactly once\n/quit\n").unwrap();
+    input.write_all(b">must not send before explicit take\n!take\n>attached follow-up exactly once\n/quit\n").unwrap();
     input.flush().unwrap();
     drop(input);
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -320,9 +320,73 @@ fn watch_json_observes_attach_transfer_and_one_follow_up() {
     assert!(events.iter().any(|event| event["type"] == "message_end" && event["message"]["role"] == "assistant"
         && event.to_string().contains("attached follow-up exactly once")));
     let log = commands(&temp);
-    assert_eq!(log.iter().filter(|frame| frame["type"] == "follow_up").count(), 1, "attach must not resend");
+    assert_eq!(log.iter().filter(|frame| frame["type"] == "follow_up").count(), 1, "attach must neither auto-take nor resend");
+    assert!(!log.iter().any(|frame| frame.to_string().contains("must not send before explicit take")), "input before !take must never reach omp");
     assert_eq!(log.iter().filter(|frame| frame["type"] == "steer").count(), 0, "denied write and follow-up must not fall back to steer");
     drop(watcher);
     owner.tool("omp_take_control", json!({"session":session,"reason":"test cleanup"}));
     assert_eq!(owner.tool("omp_stop", json!({"session":session}))["stopped"], true);
+}
+
+#[test]
+fn fleet_json_does_not_block_on_idle_session_and_interrupt_preserves_sessions() {
+    let temp = Temp::new();
+    let socket = temp.0.join("fleet.sock");
+    let mut daemon = Process(bridge(&["serve", "--socket", socket.to_str().unwrap()], &temp));
+    let until = Instant::now() + Duration::from_secs(5);
+    while !socket.exists() {
+        assert!(daemon.0.try_wait().unwrap().is_none(), "daemon exited before binding");
+        assert!(Instant::now() < until, "daemon socket deadline");
+        thread::sleep(Duration::from_millis(10));
+    }
+    let mut owner = Mcp::new(&["mcp", "--daemon", "--socket", socket.to_str().unwrap()], &temp);
+    let idle = owner.tool("omp_start", json!({"cwd":temp.0,"no_tools":true,"model":"mock-provider/mock-model"}));
+    let active = owner.tool("omp_start", json!({"cwd":temp.0,"no_tools":true,"model":"mock-provider/mock-model"}));
+    let idle_id = idle["session"].as_str().unwrap();
+    let active_id = active["session"].as_str().unwrap();
+    let mut watcher = Process(bridge(&["watch", "--all", "--json", "--socket", socket.to_str().unwrap()], &temp));
+    let output = watcher.0.stdout.take().unwrap();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(output).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() { break; }
+        }
+    });
+    let until = Instant::now() + Duration::from_secs(3);
+    let mut seen = std::collections::BTreeSet::new();
+    while seen.len() < 2 {
+        let line = rx.recv_timeout(until.saturating_duration_since(Instant::now()))
+            .expect("fleet must identify both sessions in JSON output");
+        let envelope: Value = serde_json::from_str(&line).unwrap();
+        let id = envelope["session"].as_str().expect("fleet JSON must label session");
+        assert!(id == idle_id || id == active_id);
+        seen.insert(id.to_owned());
+    }
+    let submitted = Instant::now();
+    owner.tool("omp_send", json!({"session":active_id,"message":"fleet active task","wait":false}));
+    let until = submitted + Duration::from_secs(2);
+    loop {
+        let line = rx.recv_timeout(until.saturating_duration_since(Instant::now()))
+            .expect("idle first session must not block active session events");
+        let envelope: Value = serde_json::from_str(&line).unwrap();
+        if envelope["session"] == active_id && envelope["event"]["type"] == "agent_start" {
+            break;
+        }
+    }
+    assert!(submitted.elapsed() < Duration::from_secs(2));
+    let interrupted = Instant::now();
+    assert_eq!(unsafe { libc::kill(watcher.0.id() as i32, libc::SIGINT) }, 0);
+    loop {
+        if let Some(exit) = watcher.0.try_wait().unwrap() {
+            assert!(exit.success(), "watch Ctrl-C should return a clean exit");
+            break;
+        }
+        assert!(interrupted.elapsed() < Duration::from_secs(2), "watch cancellation must not wait on an idle long-poll");
+        thread::sleep(Duration::from_millis(10));
+    }
+    let list = owner.tool("omp_list", json!({}));
+    assert_eq!(list["sessions"].as_array().unwrap().len(), 2, "stopping a watcher must not stop agent sessions");
+    assert_eq!(owner.tool("omp_stop", json!({"session":idle_id}))["stopped"], true);
+    assert_eq!(owner.tool("omp_stop", json!({"session":active_id}))["stopped"], true);
 }
