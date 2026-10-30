@@ -159,6 +159,7 @@ same rules (no human steering after START), one more timed hour.
 | 04:50 | 0:49 | Fleet watch (`--all`), explicit attach control, bounded daemon calls — 40 tests | `ca2b4e2` |
 | 04:56 | 0:55 | Real-Chrome CDP audit fixes: mobile overflow, raw captured schemas and live-evidence responses in the explorer | `8b7358f` |
 | 04:58 | 0:57 | **v2 tagged** — A and B complete with committed evidence; stretch C delivered: copy buttons, `doctor`, fleet `watch --all`, `--json` | tag `v2` |
+| 05:03 | +2 min after tag | Post-deadline evidence lands on `main` (captured during the hour on i9): real-Chrome audit screenshots + JSON, executed mock captures for the last 3 tool responses — the `v2` tag itself stays on the in-time commit | `evidence/v2/browser/`, `mock-tool-responses.json` |
 
 ### Honesty, cross-checked
 

@@ -220,8 +220,8 @@
     "promoted": true,
     "session": "session-1"
    },
-   "responseKind": "illustrative",
-   "responseSource": null,
+   "responseKind": "real",
+   "responseSource": "evidence/v2/mock-tool-responses.json (executed_mock_integration)",
    "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
@@ -556,12 +556,12 @@
     "session": "session-1"
    },
    "response": {
-    "session": "session-1",
     "abortRequested": true,
+    "session": "session-1",
     "sessionSettled": null
    },
-   "responseKind": "illustrative",
-   "responseSource": null,
+   "responseKind": "real",
+   "responseSource": "evidence/v2/mock-tool-responses.json (executed_mock_integration)",
    "inputSchema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
@@ -611,17 +611,25 @@
    "input": {},
    "example": {},
    "response": {
+    "scope": "this_bridge_process",
     "sessions": [
      {
+      "busy": false,
+      "cwd": "/private/tmp",
+      "disconnected": false,
+      "model": "mock-provider/mock-model",
+      "operations": [],
+      "pid": 568,
+      "protocolVersion": 2,
       "session": "session-1",
-      "model": "opencode-go/deepseek-v4.1-flash",
-      "busy": false
+      "sessionSettled": null,
+      "status": "unknown",
+      "stopping": false
      }
-    ],
-    "scope": "this_bridge_process"
+    ]
    },
-   "responseKind": "illustrative",
-   "responseSource": null,
+   "responseKind": "real",
+   "responseSource": "evidence/v2/mock-tool-responses.json (executed_mock_integration)",
    "inputSchema": {
     "properties": {},
     "type": "object"

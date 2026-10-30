@@ -425,8 +425,9 @@ const timeline = [
 				<p class="lead">
 					Click a tool. Descriptions and input schemas are the actual <code>tools/list</code>
 					capture from the running server (<code>evidence/v2/mcp-tool-schemas.json</code>).
-					Each response is labeled: <strong>real</strong> (from a committed transcript) or
-					<strong>illustrative</strong> (shipped shape, not a capture).
+					Every response is a committed capture: from a <strong>live provider run</strong>
+					(transcripts, evidence) or from an <strong>executed mock-omp integration</strong>
+					(real bridge execution, scripted model) — the source line says which.
 				</p>
 				<div class="explorer">
 					<div class="tool-list" id="toolList" role="tablist" aria-label="MCP tools"></div>
