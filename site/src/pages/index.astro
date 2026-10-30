@@ -391,7 +391,7 @@ const timeline = [
 				<p class="lead">Every figure below is reproducible from the repository and the committed evidence files.</p>
 				<div class="stats" id="stats"></div>
 				<p class="lead" style="margin-top:0.9rem; font-size:0.85rem">
-					Measured at commit <code>f8d9e0d</code> — reproduce with <code>wc -l crates/omp-bridge/src/*.rs</code>,
+					Measured at commit <code>ca2b4e2</code> — reproduce with <code>wc -l crates/omp-bridge/src/*.rs</code>,
 					<code>cargo test</code>, and the committed <code>evidence/</code> files.
 				</p>
 			</section>
@@ -638,11 +638,11 @@ env = { OMP_BRIDGE_CMD = "/path/to/omp" }</pre>
 			const statsBox = $("#stats");
 			const meta = readJson("stats-data") || { v1Tools: 7, v2Tools: 6 };
 			const STATS = [
-				{ n: "2,5k", l: "lines of our Rust (2,520) over 10,848 vendored RPC-client lines — we built the bridge, not the wheel" },
+				{ n: "2,5k", l: "lines of our Rust (2,517) over 10,848 vendored RPC-client lines — we built the bridge, not the wheel" },
 				{ n: String(meta.v1Tools + meta.v2Tools), l: `MCP tools (${meta.v1Tools} shipped in v1, ${meta.v2Tools} added in v2)` },
 				{ n: "2", l: "clients proven end-to-end: Codex CLI and Claude Code, live model runs" },
 				{ n: "~2.6s", l: "model turn latency measured in the Claude e2e (8 output tokens)" },
-				{ n: "37", l: "tests passing (30 unit + 7 binary/integration), clippy -D warnings in CI" },
+				{ n: "40", l: "tests passing (32 unit + 8 binary/integration incl. fleet watch + mock omp), clippy -D warnings in CI" },
 				{ n: "27min", l: "from START to audited v1 tag, out of 60 allowed" },
 			];
 			if (statsBox) {

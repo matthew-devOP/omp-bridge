@@ -42,23 +42,49 @@ Claude Code┘      │
   see `vendor/omp-rpc/PROVENANCE.md`.
 - `site/` — the Astro presentation page.
 
-## MCP tools
+## MCP tools (14 — actual schemas in `evidence/v2/mcp-tool-schemas.json`)
 
 | Tool | What it does |
 | --- | --- |
 | `omp_start` | Spawn an omp RPC session (model passed in argv), negotiate protocol v2. `no_tools: true` gives an inference-only session. |
-| `omp_send` | Send a prompt (MVP supports `mode: "prompt"` only). Returns a bridge `operationId`; with `wait` (default) it blocks up to `timeout_ms` (max 25 s). On timeout the status is `running_or_unknown` — the turn is **never** aborted or re-sent; follow up with `omp_events`/`omp_status`/`omp_abort`. `assistant_text` is capped at 64 KiB with an explicit truncation marker. |
+| `omp_send` | Send a prompt. Returns a bridge `operationId`; with `wait` (default) it blocks up to `timeout_ms` (max 25 s). On timeout the status is `running_or_unknown` — the turn is **never** aborted or re-sent. `assistant_text` capped at 64 KiB with an explicit marker. Accepts `streaming_behavior: "steer" \| "followUp"` to queue into a live run exactly once. |
+| `omp_steer` | Redirect the agent **mid-turn** on omp's native steer queue — the running task changes direction without losing the turn |
+| `omp_follow_up` | Queue a message for after the current turn yields |
+| `omp_promote_queued_message` | Promote a queued message ahead of the queue |
+| `omp_take_control` | Daemon mode: take the write lease for a shared session, with a mandatory reason — every reader sees a `controller_changed` event |
 | `omp_events` | Long-poll (`cursor`, `kinds`, `wait_ms`) the session's ring buffer — `{cursor, event}` envelopes, bounded at 2048 entries / 2 MiB, with explicit `dropped` gaps |
-| `omp_status` | Session state: `running` / `settled` / `unknown`, model, pending work |
+| `omp_status` | Session state: `running` / `settled` / `unknown`, model, pending work — whitelisted payload, never a fabricated answer |
+| `omp_messages` | The session transcript, paginated (`offset`, `limit`) |
+| `omp_set_model` | Switch the live session to another catalog model (`provider`, `model_id`) |
+| `omp_compact` | Compact the session context (invokes the model; async `operationId`) |
 | `omp_abort` | Abort the current turn (session stays alive) |
 | `omp_stop` | Tear the session down (confirmed teardown or an error — never a fabricated `stopped`) |
-| `omp_list` | List this bridge process's sessions |
+| `omp_list` | Sessions of this bridge process — or of the shared daemon, with per-session controller info |
+
+## Shared sessions: the daemon and the control lease (v2)
+
+```bash
+omp-bridge serve --socket /path/dir/bridge.sock   # daemon on a private 0600 Unix socket
+omp-bridge mcp --daemon --socket …                # MCP proxy: many clients, shared sessions
+omp-bridge watch session-1 [--json]               # live colored event stream (read-only)
+omp-bridge watch --all                            # fleet view: every session, round-robin
+omp-bridge attach session-1                       # watch + input: line=steer, >line=follow-up, !take=take control
+omp-bridge doctor [--live]                        # check omp, auth, protocol v2, daemon socket
+```
+
+One client holds the **write lease** per session; everyone else reads events freely.
+`omp_take_control` transfers it explicitly — with a reason — and emits a
+`controller_changed` event (`previousClient`, `newClient`, `reason`, `leaseEpoch`)
+that every observer sees. No silent takeovers; the lease survives disconnects.
+Without `--daemon` the bridge keeps v1 behavior: process-local sessions.
+Full wire contract: [`docs/DAEMON-CONTRACT.md`](docs/DAEMON-CONTRACT.md).
 
 ## Build
 
 ```bash
 cargo build --release --locked   # workspace root; vendor/omp-rpc resolves by path
-cargo test                       # 11 tests: bounded ring, busy guard, timeout-never-aborts
+cargo test                       # 40 tests: ring bounds, lease atomicity, timeout-never-aborts,
+                                 # fleet watch round-robin, mock-omp integration (CI runs these + clippy -D warnings)
 ```
 
 The binary lands at `target/release/omp-bridge`. Try it without an MCP client:
@@ -98,7 +124,19 @@ env = { OMP_BRIDGE_CMD = "/path/to/omp" }
 
 ## Demo
 
-Both goal criteria ran live on 2026-10-30, each from its own machine and MCP client.
+**v2 — mid-turn steer, real timed** ([`demo/v2/steer-live.json`](demo/v2/steer-live.json)):
+a live agent is steered mid-turn (`admitted, queue: "steering"`), visibly changes
+direction, then answers a queued follow-up; first `prompt_result` reports
+`sessionSettled: false` (yield ≠ settled), the authoritative settle comes from `omp_status`.
+
+**v2 — cross-client control handoff** ([`evidence/v2/cross-client.json`](evidence/v2/cross-client.json),
+transcript in [`demo/v2/cross-client-transcript.md`](demo/v2/cross-client-transcript.md)):
+Codex CLI starts a shared agent through the daemon (lease 1), Claude Code attaches,
+reads the backlog and takes control (`controller_changed`, lease 2), its follow-up is
+answered exactly `CROSS_E2E_HANDOFF_OK`, then Codex **observes the transfer event**,
+takes the lease back (lease 3) and stops the session with a confirmed teardown.
+
+The v1 runs, both live on 2026-10-30, each from its own machine and MCP client:
 
 **Codex CLI (i9)** — transcript in
 [`demo/codex-i9-e2e-transcript.txt`](demo/codex-i9-e2e-transcript.txt), machine-readable
