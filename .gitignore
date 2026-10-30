@@ -1,10 +1,12 @@
 /target/
+**/target
 /.cargo-cache/
-/site/node_modules/
-/site/dist/
-/site/.astro/
+node_modules/
+site/dist/
+site/.astro/
 .env
 .env.*
+.DS_Store
 *.log
 /evidence/*transcript*.jsonl
 /evidence/*stderr*.log
