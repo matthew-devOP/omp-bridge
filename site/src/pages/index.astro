@@ -410,6 +410,7 @@ const timeline = [
 				<div class="term-grid" id="terms"></div>
 				<div class="replay-controls">
 					<button class="ctl" id="replayBtn" type="button">↻ Replay</button>
+					<button class="ctl" id="motionBtn" type="button" aria-pressed="false">⏸ Pause motion</button>
 					<span class="pending-note" id="pendingNote"></span>
 				</div>
 			</section>
@@ -719,15 +720,39 @@ env = { OMP_BRIDGE_CMD = "/path/to/omp" }</pre>
 					const b = ev.target.closest(".tool-btn");
 					if (b) show(b.dataset.name);
 				});
+				// arrow-key navigation between tool tabs
+				list.addEventListener("keydown", (ev) => {
+					if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+					const buttons = Array.from(list.querySelectorAll(".tool-btn"));
+					const current = buttons.indexOf(document.activeElement);
+					if (current === -1) return;
+					ev.preventDefault();
+					const next = buttons[(current + (ev.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length];
+					next.focus(); show(next.dataset.name);
+				});
 				if (tools[0]) show(tools[1] ? tools[1].name : tools[0].name);
 			}
 
-			/* ---------- reduced motion: stop SMIL packets and looping videos ---------- */
-			if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-				document.querySelectorAll("svg").forEach((s) => { try { s.pauseAnimations(); } catch { /* older engines */ } });
-				document.querySelectorAll("video[autoplay]").forEach((v) => {
-					v.removeAttribute("autoplay"); v.pause(); v.controls = true;
+			/* ---------- motion control: user toggle + prefers-reduced-motion ---------- */
+			let motionPaused = false;
+			function setMotion(paused) {
+				motionPaused = paused;
+				document.querySelectorAll("svg").forEach((s) => {
+					try { if (paused) s.pauseAnimations(); else s.unpauseAnimations(); } catch { /* older engines */ }
 				});
+				document.querySelectorAll("video").forEach((v) => {
+					if (paused) { v.pause(); v.controls = true; }
+					else if (v.hasAttribute("loop") && v.muted) { v.play().catch(() => {}); }
+				});
+				if (paused) { timers.forEach(clearTimeout); timers = []; document.querySelectorAll(".term-body .ln").forEach((ln) => ln.classList.add("on")); }
+				const mb = $("#motionBtn");
+				if (mb) { mb.textContent = paused ? "▶ Resume motion" : "⏸ Pause motion"; mb.setAttribute("aria-pressed", String(paused)); }
+			}
+			const motionBtn = $("#motionBtn");
+			if (motionBtn) motionBtn.addEventListener("click", () => setMotion(!motionPaused));
+			if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+				document.querySelectorAll("video[autoplay]").forEach((v) => v.removeAttribute("autoplay"));
+				setMotion(true);
 			}
 
 			/* ---------- copy buttons ---------- */
