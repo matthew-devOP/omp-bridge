@@ -1,0 +1,168 @@
+---
+const tools = [
+	{ name: "omp_start", desc: "Spawn an omp RPC session — model pinned in argv, protocol v2 negotiated before the first command." },
+	{ name: "omp_send", desc: "Send a task. Synchronous for prompt (waits on prompt_result); steer / follow_up return admitted or queued. A client timeout never aborts the turn." },
+	{ name: "omp_events", desc: "Long-poll the session's ring buffer: monotonic cursor, explicit dropped gaps, bounded in count and bytes." },
+	{ name: "omp_status", desc: "running / settled / unknown — never a fabricated answer when the data is missing." },
+	{ name: "omp_abort", desc: "Abort the current turn; the session stays alive." },
+	{ name: "omp_stop", desc: "Confirmed teardown of the whole process group, or an error — never an optimistic stopped: true." },
+	{ name: "omp_list", desc: "The sessions owned by this bridge process (sessions are per MCP client by design)." },
+];
+---
+
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>omp-bridge — drive Oh My Pi agents from Codex CLI and Claude Code</title>
+		<meta
+			name="description"
+			content="A Rust CLI that bridges Codex CLI and Claude Code to agents running under the Oh My Pi harness, over omp's native RPC mode, exposed as an MCP stdio server."
+		/>
+		<style>
+			:root {
+				--bg: #0d1117;
+				--panel: #161b22;
+				--border: #30363d;
+				--text: #e6edf3;
+				--muted: #9198a1;
+				--accent: #58a6ff;
+				--accent2: #3fb950;
+				--mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+			}
+			* { box-sizing: border-box; }
+			body {
+				margin: 0;
+				background: var(--bg);
+				color: var(--text);
+				font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+			}
+			main { max-width: 920px; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
+			h1 {
+				font-size: 2.6rem;
+				margin: 0 0 0.3rem;
+				letter-spacing: -0.02em;
+			}
+			h1 code { font-family: var(--mono); color: var(--accent); }
+			.tagline { color: var(--muted); font-size: 1.2rem; margin: 0 0 2.5rem; }
+			h2 {
+				font-size: 1.4rem;
+				margin: 3rem 0 1rem;
+				padding-top: 1rem;
+				border-top: 1px solid var(--border);
+			}
+			p { margin: 0.6rem 0; }
+			.muted { color: var(--muted); }
+			pre {
+				background: var(--panel);
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				padding: 1rem 1.2rem;
+				overflow-x: auto;
+				font-family: var(--mono);
+				font-size: 0.85rem;
+				line-height: 1.55;
+			}
+			code { font-family: var(--mono); font-size: 0.92em; }
+			p code, li code {
+				background: var(--panel);
+				border: 1px solid var(--border);
+				border-radius: 4px;
+				padding: 0.08em 0.35em;
+			}
+			.diagram { color: var(--accent2); }
+			table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+			th, td {
+				text-align: left;
+				padding: 0.55rem 0.8rem;
+				border: 1px solid var(--border);
+				vertical-align: top;
+			}
+			th { background: var(--panel); }
+			td:first-child { font-family: var(--mono); white-space: nowrap; color: var(--accent); }
+			.pill {
+				display: inline-block;
+				border: 1px solid var(--border);
+				border-radius: 999px;
+				padding: 0.1rem 0.7rem;
+				margin: 0 0.4rem 0.4rem 0;
+				font-size: 0.85rem;
+				color: var(--muted);
+			}
+			a { color: var(--accent); }
+			footer { margin-top: 4rem; color: var(--muted); font-size: 0.85rem; }
+		</style>
+	</head>
+	<body>
+		<main>
+			<h1><code>omp-bridge</code></h1>
+			<p class="tagline">
+				Drive agents running under the <strong>Oh My Pi</strong> harness from
+				<strong>Codex CLI</strong> and <strong>Claude Code</strong> — structured RPC instead of tmux scraping.
+			</p>
+			<div>
+				<span class="pill">Rust</span>
+				<span class="pill">MCP stdio server</span>
+				<span class="pill">omp RPC (JSONL, protocol v2)</span>
+				<span class="pill">MIT</span>
+			</div>
+
+			<h2>The problem</h2>
+			<p>
+				Driving a coding agent on another machine usually degenerates into tmux plumbing:
+				<code>capture-pane</code> to read, <code>send-keys</code> to type,
+				<code>respawn-pane</code> to recover. It works — and it is fragile. No structured
+				results, no event stream, no clean abort, no way to know when the agent is actually done.
+			</p>
+			<p>
+				omp already ships the right primitive: an RPC mode (<code>omp --mode rpc --no-ui</code>)
+				speaking newline-delimited JSON over stdio — a custom JSONL protocol (not JSON-RPC 2.0)
+				with v2 framing (1&nbsp;MiB frames, <code>rpc_chunk</code> reassembly) and precise
+				completion signals: <code>prompt_result</code> for "the turn yielded",
+				<code>session_settled</code> for "nothing can wake the agent again".
+			</p>
+
+			<h2>The bridge</h2>
+			<pre class="diagram">{`Codex CLI ─┐                        ┌─ omp --mode rpc --no-ui ── OpenCode Go model
+           ├── MCP (stdio) ── omp-bridge ── omp RPC (JSONL / stdio)
+Claude Code┘                        └─ one session registry per bridge process`}</pre>
+			<p>
+				<code>omp-bridge</code> is a single Rust binary. <code>omp-bridge mcp</code> serves MCP
+				over stdio; <code>omp-bridge repl</code> is an interactive demo over the same core. The
+				omp RPC client is the vendored <code>omp-rpc</code> crate from the oh-my-pi repository
+				(MIT, pinned commit — see <code>vendor/omp-rpc/PROVENANCE.md</code>).
+			</p>
+
+			<h2>MCP tools</h2>
+			<table>
+				<tr><th>Tool</th><th>Contract</th></tr>
+				{tools.map((t) => (
+					<tr><td>{t.name}</td><td>{t.desc}</td></tr>
+				))}
+			</table>
+
+			<h2>Design decisions that matter</h2>
+			<ul>
+				<li><strong>No shell in the spawn path.</strong> <code>OMP_BRIDGE_CMD</code> is a single executable path; <code>OMP_BRIDGE_ARGS</code> is a JSON array of prefix arguments. Nothing is ever interpreted by <code>sh -c</code>.</li>
+				<li><strong>Model in argv.</strong> omp can exit before <code>ready</code> when no model resolves; selecting it after spawn cannot fix a dead process.</li>
+				<li><strong>Timeout ≠ abort.</strong> A client that stops waiting gets <code>running_or_unknown</code> and may call <code>omp_status</code> / <code>omp_abort</code>; the bridge never silently re-sends a prompt.</li>
+				<li><strong>Honest event delivery.</strong> The ring buffer is bounded in entries <em>and</em> bytes; a reader that fell behind sees an explicit gap, never a silently truncated history.</li>
+				<li><strong>Process-local sessions.</strong> Each MCP client (Codex, Claude Code) controls its own omp agents. Shared control of one session would need a daemon — deliberately out of scope.</li>
+			</ul>
+
+			<h2>Register it</h2>
+			<p><strong>Claude Code</strong></p>
+			<pre>{`claude mcp add omp-bridge -- /path/to/omp-bridge mcp`}</pre>
+			<p><strong>Codex CLI</strong> — <code>~/.codex/config.toml</code></p>
+			<pre>{`[mcp_servers.omp_bridge]
+command = "/path/to/omp-bridge"
+args = ["mcp"]`}</pre>
+
+			<footer>
+				Built in a one-hour timed challenge (2026-10-30) by two agents — Claude (M2) and
+				Codex/GPT-6-Astra (i9) — coordinating over a shared repository and handoff files.
+				MIT licensed.
+			</footer>
+		</main>
+	</body>
+</html>
