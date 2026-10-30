@@ -1,0 +1,50 @@
+{
+  "test": "live_mcp_steer_follow_up",
+  "real": true,
+  "timestampUtc": "2026-10-30T02:14:09.251534+00:00",
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "primaryPrompts": 1,
+  "steerCalls": 1,
+  "followUpCalls": 1,
+  "passed": true,
+  "timestampMeaning": "observer arrival, monotonic milliseconds",
+  "mcpServer": {
+    "name": "omp-bridge",
+    "version": "0.2.0"
+  },
+  "ompProtocolVersion": 2,
+  "operationId": "operation-2",
+  "steerAdmission": {
+    "admitted": true,
+    "queue": "steering",
+    "session": "session-1"
+  },
+  "followUpAdmission": {
+    "admitted": true,
+    "queue": "followUp",
+    "session": "session-1"
+  },
+  "toolStartedBeforeSteer": true,
+  "steeringAdmitted": true,
+  "followUpAdmitted": true,
+  "changedDirection": true,
+  "baselineSuppressed": true,
+  "followUpCompleted": true,
+  "sessionSettled": true,
+  "queueUpdateObserved": true,
+  "eventKinds": [
+    "agent_end",
+    "agent_start",
+    "available_commands_update",
+    "bridge_operation_result",
+    "message_end",
+    "prompt_result",
+    "queue_update",
+    "ready",
+    "tool_execution_end",
+    "tool_execution_start"
+  ],
+  "stopped": true,
+  "bridgeExitCode": 0,
+  "durationMs": 18718
+}

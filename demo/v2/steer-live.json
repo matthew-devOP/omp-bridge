@@ -1,0 +1,842 @@
+{
+  "real": true,
+  "timestampMeaning": "observer arrival, monotonic milliseconds",
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "events": [
+    {
+      "atMs": 10,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_start"
+      }
+    },
+    {
+      "atMs": 3048,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_send"
+      }
+    },
+    {
+      "atMs": 3049,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 3055,
+      "source": "agent",
+      "event": {
+        "type": "ready",
+        "cursor": 0
+      }
+    },
+    {
+      "atMs": 3055,
+      "source": "agent",
+      "event": {
+        "type": "available_commands_update",
+        "cursor": 1
+      }
+    },
+    {
+      "atMs": 3055,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 3110,
+      "source": "agent",
+      "event": {
+        "type": "agent_start",
+        "cursor": 2
+      }
+    },
+    {
+      "atMs": 3110,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 3144,
+      "source": "agent",
+      "event": {
+        "type": "message_end",
+        "cursor": 3
+      }
+    },
+    {
+      "atMs": 3144,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 3450,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 3759,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 4068,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 4376,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 4680,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 4991,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 5297,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 5606,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 5918,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 6225,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 6278,
+      "source": "agent",
+      "event": {
+        "type": "message_end",
+        "cursor": 4
+      }
+    },
+    {
+      "atMs": 6278,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 6289,
+      "source": "agent",
+      "event": {
+        "type": "tool_execution_start",
+        "cursor": 5,
+        "toolName": "bash"
+      }
+    },
+    {
+      "atMs": 6289,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_steer"
+      }
+    },
+    {
+      "atMs": 6297,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_follow_up"
+      }
+    },
+    {
+      "atMs": 6315,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 6317,
+      "source": "agent",
+      "event": {
+        "type": "queue_update",
+        "cursor": 6,
+        "steering": [
+          "steer request"
+        ],
+        "followUp": []
+      }
+    },
+    {
+      "atMs": 6317,
+      "source": "agent",
+      "event": {
+        "type": "tool_execution_end",
+        "cursor": 7,
+        "toolName": "bash",
+        "isError": false
+      }
+    },
+    {
+      "atMs": 6317,
+      "source": "agent",
+      "event": {
+        "type": "message_end",
+        "cursor": 8
+      }
+    },
+    {
+      "atMs": 6317,
+      "source": "agent",
+      "event": {
+        "type": "queue_update",
+        "cursor": 9,
+        "steering": [],
+        "followUp": []
+      }
+    },
+    {
+      "atMs": 6317,
+      "source": "agent",
+      "event": {
+        "type": "message_end",
+        "cursor": 10
+      }
+    },
+    {
+      "atMs": 6317,
+      "source": "agent",
+      "event": {
+        "type": "queue_update",
+        "cursor": 11,
+        "steering": [],
+        "followUp": [
+          "follow-up request"
+        ]
+      }
+    },
+    {
+      "atMs": 6317,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 6325,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 6832,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 6838,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 7348,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 7359,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 7868,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 7876,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 8387,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 8395,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 8904,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 8910,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 9418,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 9425,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 9930,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 9938,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 10448,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 10454,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 10964,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 10970,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 11481,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 11488,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 12000,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 12006,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 12514,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 12522,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 13032,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 13038,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 13548,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 13555,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 14062,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 14068,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 14400,
+      "source": "agent",
+      "event": {
+        "type": "message_end",
+        "cursor": 12,
+        "role": "assistant",
+        "markers": [
+          "STEERED_BLUE"
+        ],
+        "text": "STEERED_BLUE"
+      }
+    },
+    {
+      "atMs": 14400,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 14409,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 14410,
+      "source": "agent",
+      "event": {
+        "type": "queue_update",
+        "cursor": 13,
+        "steering": [],
+        "followUp": []
+      }
+    },
+    {
+      "atMs": 14410,
+      "source": "agent",
+      "event": {
+        "type": "message_end",
+        "cursor": 14
+      }
+    },
+    {
+      "atMs": 14410,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 14416,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 14926,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 14933,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 15444,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 15456,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 15941,
+      "source": "agent",
+      "event": {
+        "type": "message_end",
+        "cursor": 15,
+        "role": "assistant",
+        "markers": [
+          "FOLLOW_UP_GREEN"
+        ],
+        "text": "FOLLOW_UP_GREEN"
+      }
+    },
+    {
+      "atMs": 15941,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 15957,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 15959,
+      "source": "agent",
+      "event": {
+        "type": "bridge_operation_result",
+        "cursor": 16,
+        "status": "finished",
+        "sessionSettled": false
+      }
+    },
+    {
+      "atMs": 15959,
+      "source": "agent",
+      "event": {
+        "type": "agent_end",
+        "cursor": 17
+      }
+    },
+    {
+      "atMs": 15959,
+      "source": "agent",
+      "event": {
+        "type": "prompt_result",
+        "cursor": 18,
+        "status": "completed",
+        "sessionSettled": false,
+        "agentInvoked": true
+      }
+    },
+    {
+      "atMs": 15959,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 15965,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 16417,
+      "source": "agent",
+      "event": {
+        "type": "agent_start",
+        "cursor": 19
+      }
+    },
+    {
+      "atMs": 16417,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 16423,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 16442,
+      "source": "agent",
+      "event": {
+        "type": "message_end",
+        "cursor": 20
+      }
+    },
+    {
+      "atMs": 16442,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 16448,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 16959,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 16965,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 17477,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 17489,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 18000,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 18008,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 18518,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 18525,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_events"
+      }
+    },
+    {
+      "atMs": 18626,
+      "source": "agent",
+      "event": {
+        "type": "message_end",
+        "cursor": 21,
+        "role": "assistant",
+        "markers": [
+          "FOLLOW_UP_GREEN"
+        ],
+        "text": "FOLLOW_UP_GREEN"
+      }
+    },
+    {
+      "atMs": 18626,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_status"
+      }
+    },
+    {
+      "atMs": 18633,
+      "source": "client",
+      "event": {
+        "type": "tool_call",
+        "tool": "omp_stop"
+      }
+    }
+  ]
+}

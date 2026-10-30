@@ -1,0 +1,361 @@
+{
+  "source": "actual MCP tools/list",
+  "serverInfo": {
+    "name": "omp-bridge",
+    "version": "0.2.0"
+  },
+  "tools": [
+    {
+      "name": "omp_abort",
+      "description": "Abort the current agent turn without stopping the process.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_compact",
+      "description": "Compact conversation context with optional instructions; invokes the model and may consume provider quota.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "instructions": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_events",
+      "description": "Read bounded session events with a cursor and explicit dropped-history indication. Inspect prompt_result.sessionSettled or session_settled to establish settlement.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "cursor": {
+            "description": "Next event cursor to read, initially zero.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "kinds": {
+            "description": "Filter this read only; empty means all kinds.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "session": {
+            "type": "string"
+          },
+          "wait_ms": {
+            "description": "Long-poll at most 25000 ms.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_follow_up",
+      "description": "Queue a follow-up for when the agent would otherwise stop. Admission does not mean completion.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "text": {
+            "description": "Message to steer or queue, exactly once.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "text"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_list",
+      "description": "List sessions: private to this process by default, shared when connected to a daemon.",
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_messages",
+      "description": "Read paginated message history with a stable cursor. Available to observers as well as the controller.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "cursor": {
+            "description": "Stable page cursor returned by the previous call.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Bounded page size, maximum 100.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "description": "Legacy offset for starting without a cursor.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_promote_queued_message",
+      "description": "Promote a matching queued follow-up into steering without sending it again. Inspect promoted, not object truthiness.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "text": {
+            "description": "Message to steer or queue, exactly once.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "text"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_send",
+      "description": "Send a prompt. Returns a bridge operationId; timeout means running_or_unknown, never implicit abort or retry.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "mode": {
+            "description": "Normal prompt by default; use dedicated steer/follow-up tools while active.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session": {
+            "type": "string"
+          },
+          "streaming_behavior": {
+            "description": "Queue a prompt exactly once while streaming: steer or followUp.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timeout_ms": {
+            "description": "At most 25000 ms. Timeout never aborts or retries the prompt.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "wait": {
+            "description": "Wait for result up to timeout_ms; false returns an operationId immediately.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "session",
+          "message"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_set_model",
+      "description": "Switch the session model by provider and model_id. Requires the controller lease in daemon mode.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "model_id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "provider",
+          "model_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_start",
+      "description": "Start an Oh My Pi RPC v2 session. Private by default; daemon mode shares sessions with an exclusive controller lease.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "cwd": {
+            "description": "Existing working directory for the agent. Defaults to bridge working directory.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "description": "Provider/model identifier, passed at process startup.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "no_tools": {
+            "description": "Disable tools for a minimal inference-only smoke test. Default false.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_status",
+      "description": "Get authoritative agent state and bridge operation outcomes. Completion and session settlement are distinct.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_steer",
+      "description": "Steer a running agent at its next step. Sends exactly one RPC steer, never a duplicate fallback prompt.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "text": {
+            "description": "Message to steer or queue, exactly once.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "text"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_stop",
+      "description": "Stop the session. stopped=true only after confirmed process teardown.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "omp_take_control",
+      "description": "Explicitly take the exclusive controller lease for a shared daemon session. Every transfer records its reason in the event stream.",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "reason": {
+            "description": "Human-readable explanation recorded in the controller transfer event.",
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "reason"
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}
