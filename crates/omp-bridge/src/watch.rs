@@ -1,42 +1,29 @@
 //! Human-facing daemon clients: `watch` streams a session's events, `attach` adds input.
 //!
-//! Both speak the JSONL socket protocol from docs/DAEMON-CONTRACT.md as plain
-//! clients; they never own sessions. Everything here is blocking std I/O.
+//! Both speak the daemon wire from docs/DAEMON-CONTRACT.md as plain clients:
+//! one fresh connection per request (connect → one JSON line out → one JSON
+//! line back → close), with the daemon-issued `client_id` reused across
+//! requests. Everything here is blocking std I/O and self-contained.
 
-use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, IsTerminal, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 
 const POLL_WAIT_MS: u64 = 20_000;
-const REPLY_TIMEOUT: Duration = Duration::from_secs(40);
 const LINE_WIDTH: usize = 120;
 
 pub fn run_watch(session: &str, socket: Option<String>, raw_json: bool) -> Result<()> {
     let path = socket_path(socket);
-    let stream = connect(&path)?;
-    let mut reader = BufReader::new(stream.try_clone()?);
-    let mut writer = stream;
-    hello_handshake(&mut writer, &mut reader, &format!("watch-{}", std::process::id()))?;
+    let client = hello(&path, "watch")?;
     let start = Instant::now();
     let color = !raw_json && std::io::stdout().is_terminal();
     let mut cursor = 0u64;
-    let mut sequence = 0u64;
     loop {
-        sequence += 1;
-        let page = fetch_events(
-            &mut writer,
-            &mut reader,
-            &format!("w-{sequence}"),
-            session,
-            cursor,
-            POLL_WAIT_MS,
-        )?;
+        let page = fetch_events(&path, &client, session, cursor, POLL_WAIT_MS)?;
         emit_page(&page, start, color, raw_json);
         cursor = page.next_cursor;
     }
@@ -44,48 +31,20 @@ pub fn run_watch(session: &str, socket: Option<String>, raw_json: bool) -> Resul
 
 pub fn run_attach(session: &str, socket: Option<String>) -> Result<()> {
     let path = socket_path(socket);
-    let stream = connect(&path)?;
-    let reader = BufReader::new(stream.try_clone()?);
-    let mut hello_writer = stream.try_clone()?;
-    // The handshake happens before the router thread exists, so it reads directly.
-    let mut hello_reader = reader;
-    let client_id = hello_handshake(
-        &mut hello_writer,
-        &mut hello_reader,
-        &format!("attach-{}", std::process::id()),
-    )?;
+    let client = hello(&path, "attach")?;
     eprintln!(
-        "attached as {client_id}: plain line = steer, >line = follow-up, !take = take control, /quit = leave"
+        "attached as {client}: plain line = steer, >line = follow-up, !take = take control, /quit = leave"
     );
-
-    let writer = Arc::new(Mutex::new(hello_writer));
-    let (event_tx, event_rx) = mpsc::channel::<Value>();
-    let (action_tx, action_rx) = mpsc::channel::<Value>();
-    std::thread::spawn(move || route_replies(hello_reader, &event_tx, &action_tx));
 
     let start = Instant::now();
     let color = std::io::stdout().is_terminal();
-    let session_name = session.to_owned();
-    let event_writer = writer.clone();
+    let event_path = path.clone();
+    let event_client = client.clone();
+    let event_session = session.to_owned();
     std::thread::spawn(move || {
         let mut cursor = 0u64;
-        let mut sequence = 0u64;
         loop {
-            sequence += 1;
-            let id = format!("w-{sequence}");
-            let args = json!({"session": session_name, "cursor": cursor, "wait_ms": POLL_WAIT_MS});
-            if send_request(&event_writer, &id, "events", args).is_err() {
-                break;
-            }
-            let Ok(reply) = event_rx.recv_timeout(REPLY_TIMEOUT) else {
-                eprintln!("events: reply_timeout");
-                break;
-            };
-            if reply.get("bridgeEof").is_some() {
-                eprintln!("daemon closed the connection");
-                break;
-            }
-            match parse_events_page(&reply) {
+            match fetch_events(&event_path, &event_client, &event_session, cursor, POLL_WAIT_MS) {
                 Ok(page) => {
                     emit_page(&page, start, color, false);
                     cursor = page.next_cursor;
@@ -98,7 +57,7 @@ pub fn run_attach(session: &str, socket: Option<String>) -> Result<()> {
         }
     });
 
-    let action_sequence = AtomicU64::new(0);
+    let mut has_control = false;
     let stdin = std::io::stdin();
     for line in stdin.lock().lines() {
         let line = line?;
@@ -109,144 +68,111 @@ pub fn run_attach(session: &str, socket: Option<String>) -> Result<()> {
         if line == "/quit" {
             break;
         }
-        let (op, args) = if line == "!take" {
-            ("take_control", json!({"session": session, "reason": "operator attach"}))
-        } else if let Some(rest) = line.strip_prefix('>') {
-            ("follow_up", json!({"session": session, "message": rest.trim()}))
-        } else {
-            ("steer", json!({"session": session, "message": line}))
+        if line == "!take" {
+            match take_control(&path, &client, session) {
+                Ok(()) => {
+                    has_control = true;
+                    println!("take_control: accepted");
+                }
+                Err(error) => println!("take_control: {error}"),
+            }
+            continue;
+        }
+        let (method, text) = match line.strip_prefix('>') {
+            Some(rest) => ("omp_follow_up", rest.trim()),
+            None => ("omp_steer", line),
         };
-        let id = format!("a-{}", action_sequence.fetch_add(1, Ordering::Relaxed) + 1);
-        send_request(&writer, &id, op, args)?;
-        match action_rx.recv_timeout(REPLY_TIMEOUT) {
-            Ok(reply) if reply.get("bridgeEof").is_some() => {
-                eprintln!("daemon closed the connection");
-                break;
-            }
-            Ok(reply) if reply["ok"] == json!(true) => {
-                println!("{op}: accepted");
-            }
-            Ok(reply) => {
-                let code = reply["error"].as_str().unwrap_or("error");
-                if code == "not_controller" {
-                    let holder = reply["controller"].as_str().unwrap_or("?");
-                    println!("not controller (current: {holder}) — type !take to take control");
-                } else {
-                    println!("{op}: {code}");
+        // The lease is taken explicitly, and only once, before the first write.
+        if !has_control {
+            match take_control(&path, &client, session) {
+                Ok(()) => has_control = true,
+                Err(error) => {
+                    println!("take_control: {error}");
+                    continue;
                 }
             }
-            Err(_) => eprintln!("{op}: reply_timeout"),
+        }
+        match call(&path, Some(&client), method, json!({"session": session, "text": text})) {
+            Ok(_) => println!("{method}: accepted"),
+            Err(error) if error.to_string() == "not_controller" => {
+                has_control = false;
+                println!("not controller — type !take to take control");
+            }
+            Err(error) => println!("{method}: {error}"),
         }
     }
     Ok(())
 }
 
-/// Read every reply line and route it by id prefix: `w-` to the events loop,
-/// everything else to the action loop. A closed socket notifies both.
-fn route_replies(
-    mut reader: BufReader<UnixStream>,
-    event_tx: &mpsc::Sender<Value>,
-    action_tx: &mpsc::Sender<Value>,
-) {
-    let mut line = String::new();
-    loop {
-        line.clear();
-        match reader.read_line(&mut line) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
-        }
-        let Ok(value) = serde_json::from_str::<Value>(&line) else {
-            continue;
-        };
-        let id = value["id"].as_str().unwrap_or("");
-        let target = if id.starts_with("w-") { event_tx } else { action_tx };
-        if target.send(value).is_err() {
-            break;
-        }
+fn take_control(path: &str, client: &str, session: &str) -> Result<()> {
+    call(path, Some(client), "omp_take_control", json!({"session": session, "reason": "operator attach"}))
+        .map(|_| ())
+}
+
+/// One request on a fresh connection: connect, one JSON line out, one line back.
+/// `Ok` carries the reply's `result`; failures surface the short error `code`.
+fn call(path: &str, client_id: Option<&str>, method: &str, params: Value) -> Result<Value> {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let id = format!("r-{}", SEQUENCE.fetch_add(1, Ordering::Relaxed) + 1);
+    let mut frame = json!({"id": id, "method": method, "params": params});
+    if let Some(client) = client_id {
+        frame["client_id"] = json!(client);
     }
-    let eof = json!({"bridgeEof": true});
-    let _ = event_tx.send(eof.clone());
-    let _ = action_tx.send(eof);
+    let mut stream =
+        UnixStream::connect(path).map_err(|_| anyhow!("daemon_unreachable: {path}"))?;
+    writeln!(stream, "{frame}").map_err(|_| anyhow!("socket_write_failed"))?;
+    stream.flush().map_err(|_| anyhow!("socket_write_failed"))?;
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    if reader.read_line(&mut line).map_err(|_| anyhow!("socket_read_failed"))? == 0 {
+        bail!("daemon_closed");
+    }
+    let reply: Value = serde_json::from_str(&line).map_err(|_| anyhow!("invalid_reply"))?;
+    if reply["id"].as_str() != Some(id.as_str()) {
+        bail!("reply_id_mismatch");
+    }
+    if reply["ok"] == json!(true) {
+        return Ok(reply["result"].clone());
+    }
+    bail!("{}", reply["error"]["code"].as_str().unwrap_or("daemon_error"))
+}
+
+fn hello(path: &str, name: &str) -> Result<String> {
+    let result = call(path, None, "hello", json!({"name": name}))?;
+    result["client_id"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("hello_missing_client_id"))
 }
 
 #[derive(Debug)]
 pub struct EventsPage {
-    pub events: VecDeque<Value>,
+    pub events: Vec<Value>,
     pub next_cursor: u64,
     pub dropped: u64,
 }
 
-fn send_request(writer: &Arc<Mutex<UnixStream>>, id: &str, op: &str, args: Value) -> Result<()> {
-    let mut guard = writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    write_frame(&mut *guard, id, op, args)
-}
-
-fn write_frame(writer: &mut impl Write, id: &str, op: &str, args: Value) -> Result<()> {
-    let frame = json!({"id": id, "op": op, "args": args});
-    writeln!(writer, "{frame}").map_err(|_| anyhow!("socket_write_failed"))?;
-    writer.flush().map_err(|_| anyhow!("socket_write_failed"))
-}
-
-fn read_reply(reader: &mut impl BufRead, id: &str) -> Result<Value> {
-    let mut line = String::new();
-    loop {
-        line.clear();
-        if reader.read_line(&mut line).map_err(|_| anyhow!("socket_read_failed"))? == 0 {
-            bail!("daemon_closed");
-        }
-        let value: Value = serde_json::from_str(&line).map_err(|_| anyhow!("invalid_reply"))?;
-        if value["id"].as_str() == Some(id) {
-            return Ok(value);
-        }
-    }
-}
-
-fn expect_ok(reply: Value) -> Result<Value> {
-    if reply["ok"] == json!(true) {
-        return Ok(reply["data"].clone());
-    }
-    bail!("{}", reply["error"].as_str().unwrap_or("daemon_error"))
-}
-
-pub fn hello_handshake(
-    writer: &mut impl Write,
-    reader: &mut impl BufRead,
+fn fetch_events(
+    path: &str,
     client: &str,
-) -> Result<String> {
-    write_frame(writer, "h-1", "hello", json!({"client": client}))?;
-    let data = expect_ok(read_reply(reader, "h-1")?)?;
-    Ok(data["clientId"].as_str().unwrap_or("client-?").to_owned())
-}
-
-pub fn fetch_events(
-    writer: &mut impl Write,
-    reader: &mut impl BufRead,
-    id: &str,
     session: &str,
     cursor: u64,
     wait_ms: u64,
 ) -> Result<EventsPage> {
-    let args = json!({"session": session, "cursor": cursor, "wait_ms": wait_ms});
-    write_frame(writer, id, "events", args)?;
-    let reply = read_reply(reader, id)?;
-    parse_events_page(&reply)
+    let params = json!({"session": session, "cursor": cursor, "wait_ms": wait_ms});
+    parse_events_page(&call(path, Some(client), "omp_events", params)?)
 }
 
-fn parse_events_page(reply: &Value) -> Result<EventsPage> {
-    if reply["ok"] != json!(true) {
-        bail!("{}", reply["error"].as_str().unwrap_or("daemon_error"));
-    }
-    let data = &reply["data"];
-    let events = data["events"]
-        .as_array()
-        .ok_or_else(|| anyhow!("invalid_events_page"))?
-        .iter()
-        .cloned()
-        .collect();
+fn parse_events_page(result: &Value) -> Result<EventsPage> {
     Ok(EventsPage {
-        events,
-        next_cursor: data["nextCursor"].as_u64().ok_or_else(|| anyhow!("invalid_events_page"))?,
-        dropped: data["dropped"].as_u64().unwrap_or(0),
+        events: result["events"]
+            .as_array()
+            .ok_or_else(|| anyhow!("invalid_events_page"))?
+            .clone(),
+        next_cursor: result["nextCursor"]
+            .as_u64()
+            .ok_or_else(|| anyhow!("invalid_events_page"))?,
+        dropped: result["dropped"].as_u64().unwrap_or(0),
     })
 }
 
@@ -276,6 +202,16 @@ fn render_event(start: Instant, envelope: &Value, color: bool) -> String {
         k if k.starts_with("tool_execution") => ("33", tool_name(event)),
         "prompt_result" => ("36", format!("status={}", event["status"].as_str().unwrap_or("?"))),
         "session_settled" => ("36", String::new()),
+        "controller_changed" => (
+            "35",
+            format!(
+                "{} → {} ({})",
+                event["previousClient"].as_str().unwrap_or("-"),
+                event["newClient"].as_str().unwrap_or("-"),
+                event["reason"].as_str().unwrap_or("-")
+            ),
+        ),
+        // Earlier daemon builds used this name for the same transfer event.
         "bridge_control_transfer" => (
             "35",
             format!(
@@ -324,10 +260,6 @@ fn tool_name(event: &Value) -> String {
     String::new()
 }
 
-fn connect(path: &str) -> Result<UnixStream> {
-    UnixStream::connect(path).map_err(|_| anyhow!("daemon_unreachable: {path}"))
-}
-
 fn socket_path(argument: Option<String>) -> String {
     if let Some(path) = argument {
         return path;
@@ -337,10 +269,14 @@ fn socket_path(argument: Option<String>) -> String {
     {
         return path;
     }
-    let dir = std::env::var("TMPDIR").ok().filter(|d| !d.is_empty()).unwrap_or_else(|| "/tmp".into());
-    let uid = unsafe { libc::getuid() };
-    std::path::Path::new(&dir)
-        .join(format!("omp-bridge-{uid}.sock"))
+    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR")
+        && !dir.is_empty()
+    {
+        return std::path::Path::new(&dir).join("omp-bridge.sock").to_string_lossy().into_owned();
+    }
+    let home = std::env::var("HOME").ok().filter(|h| !h.is_empty()).unwrap_or_else(|| ".".into());
+    std::path::Path::new(&home)
+        .join(".local/state/omp-bridge/bridge.sock")
         .to_string_lossy()
         .into_owned()
 }
@@ -350,49 +286,51 @@ mod tests {
     use super::*;
     use std::os::unix::net::UnixListener;
 
+    /// One fake-daemon exchange: read a line, assert with `check`, reply.
+    fn serve_one(listener: &UnixListener, check: impl FnOnce(&Value) -> Value) {
+        let (stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        let reply = check(&request);
+        writeln!(writer, "{reply}").unwrap();
+    }
+
     #[test]
-    fn handshake_and_fetch_advance_cursor_over_jsonl_socket() {
+    fn hello_then_fetch_use_fresh_connections_and_advance_cursor() {
         let dir = std::env::temp_dir().join(format!("omp-bridge-watch-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("watch.sock");
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).unwrap();
         let server = std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut writer = stream;
-            let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
-            let hello: Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(hello["op"], "hello");
-            writeln!(writer, "{}", json!({"id": hello["id"], "ok": true, "data": {"clientId": "client-9"}}))
-                .unwrap();
-            line.clear();
-            reader.read_line(&mut line).unwrap();
-            let request: Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["op"], "events");
-            assert_eq!(request["args"]["cursor"], 5);
-            assert_eq!(request["args"]["session"], "session-1");
-            writeln!(
-                writer,
-                "{}",
-                json!({"id": request["id"], "ok": true, "data": {
+            serve_one(&listener, |request| {
+                assert_eq!(request["method"], "hello");
+                assert!(request.get("client_id").is_none(), "hello carries no client_id");
+                assert_eq!(request["params"]["name"], "watch");
+                json!({"id": request["id"], "ok": true, "result": {"client_id": "client-9"}})
+            });
+            serve_one(&listener, |request| {
+                assert_eq!(request["method"], "omp_events");
+                assert_eq!(request["client_id"], "client-9");
+                assert_eq!(request["params"]["cursor"], 5);
+                assert_eq!(request["params"]["session"], "session-1");
+                json!({"id": request["id"], "ok": true, "result": {
                     "events": [
                         {"cursor": 5, "event": {"type": "agent_start"}},
                         {"cursor": 6, "event": {"type": "session_settled"}}
                     ],
                     "nextCursor": 7, "oldestCursor": 0, "dropped": 0
                 }})
-            )
-            .unwrap();
+            });
         });
 
-        let stream = UnixStream::connect(&path).unwrap();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut writer = stream;
-        let client = hello_handshake(&mut writer, &mut reader, "test").unwrap();
+        let path = path.to_string_lossy().into_owned();
+        let client = hello(&path, "watch").unwrap();
         assert_eq!(client, "client-9");
-        let page = fetch_events(&mut writer, &mut reader, "w-1", "session-1", 5, 1_000).unwrap();
+        let page = fetch_events(&path, &client, "session-1", 5, 1_000).unwrap();
         assert_eq!(page.events.len(), 2);
         assert_eq!(page.next_cursor, 7);
         assert_eq!(page.dropped, 0);
@@ -401,19 +339,37 @@ mod tests {
     }
 
     #[test]
-    fn control_transfer_renders_parties_and_reason() {
-        let start = Instant::now();
-        let transfer = json!({"cursor": 3, "event": {
-            "type": "bridge_control_transfer", "from": "client-1", "to": "client-2", "reason": "handoff"
-        }});
-        let line = render_event(start, &transfer, false);
-        assert!(line.contains("client-1 → client-2 (handoff)"), "{line}");
+    fn error_reply_surfaces_short_code_only() {
+        let dir = std::env::temp_dir().join(format!("omp-bridge-watch-err-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("err.sock");
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = std::thread::spawn(move || {
+            serve_one(&listener, |request| {
+                json!({"id": request["id"], "ok": false, "error": {
+                    "code": "not_controller", "message": "client-1 holds the lease"
+                }})
+            });
+        });
+        let path = path.to_string_lossy().into_owned();
+        let error = call(&path, Some("client-2"), "omp_steer", json!({"session": "s", "text": "x"}))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(error, "not_controller");
+        server.join().unwrap();
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
-    fn error_reply_surfaces_short_code() {
-        let reply = json!({"id": "w-1", "ok": false, "error": "unknown_session"});
-        let error = parse_events_page(&reply).unwrap_err().to_string();
-        assert_eq!(error, "unknown_session");
+    fn controller_changed_renders_parties_and_reason() {
+        let start = Instant::now();
+        let transfer = json!({"cursor": 3, "event": {
+            "type": "controller_changed",
+            "previousClient": "client-1", "newClient": "client-2",
+            "reason": "handoff", "leaseEpoch": 2
+        }});
+        let line = render_event(start, &transfer, false);
+        assert!(line.contains("client-1 → client-2 (handoff)"), "{line}");
     }
 }
