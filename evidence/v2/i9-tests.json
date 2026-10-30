@@ -1,14 +1,14 @@
 {
-  "timestampUtc": "2026-10-30T02:35:09.600843+00:00",
+  "timestampUtc": "2026-10-30T02:49:11.382630+00:00",
   "command": "cargo test --locked",
   "passed": true,
   "groupsPassed": [
-    30,
+    32,
     3,
-    4,
+    5,
     0
   ],
-  "totalPassed": 37,
+  "totalPassed": 40,
   "coverage": [
     "RPC mock process",
     "private MCP",
@@ -18,6 +18,9 @@
     "settlement race regressions",
     "bounded ring and wire",
     "model metadata redaction",
-    "doctor diagnostics"
+    "doctor diagnostics",
+    "fleet watch two-session fairness",
+    "watch SIGINT preserves daemon sessions",
+    "bounded daemon hello/call/trickling response deadlines"
   ]
 }

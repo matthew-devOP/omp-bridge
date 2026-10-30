@@ -19,7 +19,7 @@ let profile, chrome, ws, cdp, nextId = 1;
 const pending = new Map();
 async function evaluate(expression) {
   const result = await cdp('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true, userGesture: true });
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
   return result.result.value;
 }
 async function screenshot(name) {
@@ -47,7 +47,9 @@ async function navigate() {
   await sleep(600);
 }
 const layout = () => evaluate(`({width:innerWidth,height:innerHeight,documentWidth:document.documentElement.scrollWidth,
- horizontalOverflow:document.documentElement.scrollWidth>innerWidth,title:document.title,
+ clientWidth:document.documentElement.clientWidth,
+ horizontalOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,title:document.title,
+ overflowingElements:[...document.querySelectorAll('main *')].filter(e=>e.namespaceURI==='http://www.w3.org/1999/xhtml'&&e.getBoundingClientRect().right>document.documentElement.clientWidth+1).slice(0,30).map(e=>({tag:e.tagName,id:e.id,classes:e.className?.baseVal??e.className,right:Math.round(e.getBoundingClientRect().right),width:Math.round(e.getBoundingClientRect().width)})),
  brokenImages:[...document.images].filter(i=>i.complete&&!i.naturalWidth).map(i=>new URL(i.src).pathname)})`);
 try {
   await mkdir(output, { recursive: true });
@@ -117,6 +119,8 @@ try {
   })()`);
   await screenshot('desktop-replay.png');
   try {
+    await cdp('Page.bringToFront');
+    await cdp('Emulation.setFocusEmulationEnabled', {enabled:true});
     await cdp('Browser.grantPermissions', { origin:url.origin,permissions:['clipboardReadWrite','clipboardSanitizedWrite'] });
     report.checks.copy = await evaluate(`(async () => {
       const results=[];for(const b of document.querySelectorAll('[data-copy]')) {
