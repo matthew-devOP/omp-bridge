@@ -6,3 +6,6 @@
 .env
 .env.*
 *.log
+/evidence/*transcript*.jsonl
+/evidence/*stderr*.log
+/evidence/*result*.txt

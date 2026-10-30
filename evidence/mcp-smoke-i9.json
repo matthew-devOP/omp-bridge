@@ -1,0 +1,37 @@
+{
+  "bridgeExitCode": 0,
+  "completed": true,
+  "durationSeconds": 5.637,
+  "eventKinds": [
+    "agent_end",
+    "agent_start",
+    "available_commands_update",
+    "bridge_operation_result",
+    "message_end",
+    "prompt_result",
+    "ready",
+    "session_settled"
+  ],
+  "eventSettlementObserved": true,
+  "expectedResponseMatched": true,
+  "expectedToolError": true,
+  "mcpProtocolVersion": "2025-11-25",
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "ompProtocolVersion": 2,
+  "operationId": "operation-2",
+  "passed": true,
+  "promptsSent": 1,
+  "sessionSettled": true,
+  "stopped": true,
+  "test": "mcp_stdio_one_prompt",
+  "timestampUtc": "2026-10-30T01:12:27.622548+00:00",
+  "tools": [
+    "omp_abort",
+    "omp_events",
+    "omp_list",
+    "omp_send",
+    "omp_start",
+    "omp_status",
+    "omp_stop"
+  ]
+}
