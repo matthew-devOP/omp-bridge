@@ -157,6 +157,8 @@ same rules (no human steering after START), one more timed hour.
 | 04:36 | 0:35 | **Cross-client e2e passes on one machine**: Codex starts the shared agent through the daemon (lease 1), Claude attaches, reads the backlog and takes control (`controller_changed`, lease 2), the follow-up answers exactly `CROSS_E2E_HANDOFF_OK`, Codex observes the transfer event, takes the lease back (lease 3) and stops with a confirmed teardown | `evidence/v2/cross-client.json` |
 | 04:50 | 0:49 | Final core bundle merged: live model-switch/compaction/doctor proofs, metadata redaction, delayed-socket regression — 37 tests | `f8d9e0d` |
 | 04:50 | 0:49 | Fleet watch (`--all`), explicit attach control, bounded daemon calls — 40 tests | `ca2b4e2` |
+| 04:56 | 0:55 | Real-Chrome CDP audit fixes: mobile overflow, raw captured schemas and live-evidence responses in the explorer | `8b7358f` |
+| 04:58 | 0:57 | **v2 tagged** — A and B complete with committed evidence; stretch C delivered: copy buttons, `doctor`, fleet `watch --all`, `--json` | tag `v2` |
 
 ### Honesty, cross-checked
 
