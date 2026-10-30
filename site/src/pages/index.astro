@@ -301,8 +301,11 @@ const timeline = [
 				display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;
 			}
 
+			.explorer > * { min-width: 0; }
+			.tool-detail pre { max-width: 100%; overflow-x: auto; }
+			.tool-detail h3 { overflow-wrap: anywhere; }
 			@media (max-width: 900px) {
-				.term-grid, .explorer, .ba, .reg-grid, .uc-grid, .vision-grid { grid-template-columns: 1fr; }
+				.term-grid, .explorer, .ba, .reg-grid, .uc-grid, .vision-grid { grid-template-columns: minmax(0, 1fr); }
 				.hero { padding-top: 3rem; }
 				main { padding: 0 1.1rem 4rem; }
 				/* keep the architecture labels readable: scroll instead of shrinking */
@@ -708,7 +711,8 @@ env = { OMP_BRIDGE_CMD = "/path/to/omp" }</pre>
 				detail.innerHTML = `
 					<h3>${t.name}</h3>
 					<p class="desc">${t.desc}</p>
-					<h4>input — actual schema</h4><pre>${fmt(t.input).replace(/</g,"&lt;")}</pre>
+					<h4>input — fields</h4><pre>${fmt(t.input).replace(/</g,"&lt;")}</pre>
+					<h4>input — actual captured JSON Schema</h4><pre>${fmt(t.inputSchema || null).replace(/</g,"&lt;")}</pre>
 					<h4>example call</h4><pre>${fmt(t.example).replace(/</g,"&lt;")}</pre>
 					<h4>${label}</h4><pre>${fmt(t.response).replace(/</g,"&lt;")}</pre>`;
 			}

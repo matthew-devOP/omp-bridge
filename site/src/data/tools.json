@@ -1,5 +1,5 @@
 {
- "note": "Descriptions and input schemas are the actual MCP tools/list capture (evidence/v2/mcp-tool-schemas.json, omp-bridge 0.2.0). Responses marked real come from committed transcripts/evidence; responses marked illustrative follow the shipped shape but were not captured from a live run.",
+ "note": "Descriptions and inputSchema are the actual MCP tools/list capture (evidence/v2/mcp-tool-schemas.json, omp-bridge 0.2.0). The simplified input map is a readability aid; the raw schema is shown as captured. Responses marked real come from committed transcripts/evidence; illustrative ones follow the shipped shape but were not captured.",
  "serverInfo": {
   "name": "omp-bridge",
   "version": "0.2.0"
@@ -26,7 +26,34 @@
     "sessionSettled": null
    },
    "responseKind": "real",
-   "responseSource": "demo/claude-m2-e2e-transcript.txt"
+   "responseSource": "demo/claude-m2-e2e-transcript.txt",
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "cwd": {
+      "description": "Existing working directory for the agent. Defaults to bridge working directory.",
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "model": {
+      "description": "Provider/model identifier, passed at process startup.",
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "no_tools": {
+      "description": "Disable tools for a minimal inference-only smoke test. Default false.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "type": "object"
+   }
   },
   {
    "name": "omp_send",
@@ -55,7 +82,53 @@
     }
    },
    "responseKind": "real",
-   "responseSource": "demo/claude-m2-e2e-transcript.txt"
+   "responseSource": "demo/claude-m2-e2e-transcript.txt",
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "message": {
+      "type": "string"
+     },
+     "mode": {
+      "description": "Normal prompt by default; use dedicated steer/follow-up tools while active.",
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "session": {
+      "type": "string"
+     },
+     "streaming_behavior": {
+      "description": "Queue a prompt exactly once while streaming: steer or followUp.",
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "timeout_ms": {
+      "description": "At most 25000 ms. Timeout never aborts or retries the prompt.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "wait": {
+      "description": "Wait for result up to timeout_ms; false returns an operationId immediately.",
+      "type": [
+       "boolean",
+       "null"
+      ]
+     }
+    },
+    "required": [
+     "session",
+     "message"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_steer",
@@ -75,7 +148,24 @@
     "session": "session-1"
    },
    "responseKind": "real",
-   "responseSource": "evidence/v2/steer-live.json"
+   "responseSource": "evidence/v2/steer-live.json",
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "session": {
+      "type": "string"
+     },
+     "text": {
+      "description": "Message to steer or queue, exactly once.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "session",
+     "text"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_follow_up",
@@ -95,7 +185,24 @@
     "session": "session-1"
    },
    "responseKind": "real",
-   "responseSource": "evidence/v2/steer-live.json"
+   "responseSource": "evidence/v2/steer-live.json",
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "session": {
+      "type": "string"
+     },
+     "text": {
+      "description": "Message to steer or queue, exactly once.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "session",
+     "text"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_promote_queued_message",
@@ -114,7 +221,24 @@
     "session": "session-1"
    },
    "responseKind": "illustrative",
-   "responseSource": null
+   "responseSource": null,
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "session": {
+      "type": "string"
+     },
+     "text": {
+      "description": "Message to steer or queue, exactly once.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "session",
+     "text"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_take_control",
@@ -125,22 +249,36 @@
     "session": "string"
    },
    "example": {
-    "session": "session-1",
-    "reason": "operator handoff"
+    "session": "session-3",
+    "reason": "operator handoff: Claude taking over mid-count"
    },
    "response": {
+    "changed": true,
     "controller": {
-     "clientId": "c-7f3a",
-     "name": "claude"
-    },
-    "previousController": {
-     "clientId": "c-91",
-     "name": "codex"
+     "clientId": "e56dbbca1174f569dc2b3bd0e0b7eac8b5f2f868ed25df17",
+     "clientName": "mcp"
     },
     "leaseEpoch": 2
    },
-   "responseKind": "illustrative",
-   "responseSource": null
+   "responseKind": "real",
+   "responseSource": "evidence/v2/cross-client.json",
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "reason": {
+      "description": "Human-readable explanation recorded in the controller transfer event.",
+      "type": "string"
+     },
+     "session": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "session",
+     "reason"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_events",
@@ -179,7 +317,47 @@
     "dropped": 0
    },
    "responseKind": "real",
-   "responseSource": "demo/claude-m2-e2e-transcript.txt"
+   "responseSource": "demo/claude-m2-e2e-transcript.txt",
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "cursor": {
+      "description": "Next event cursor to read, initially zero.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "kinds": {
+      "description": "Filter this read only; empty means all kinds.",
+      "items": {
+       "type": "string"
+      },
+      "type": [
+       "array",
+       "null"
+      ]
+     },
+     "session": {
+      "type": "string"
+     },
+     "wait_ms": {
+      "description": "Long-poll at most 25000 ms.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": [
+       "integer",
+       "null"
+      ]
+     }
+    },
+    "required": [
+     "session"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_status",
@@ -204,7 +382,19 @@
     ]
    },
    "responseKind": "real",
-   "responseSource": "demo/claude-m2-e2e-transcript.txt"
+   "responseSource": "demo/claude-m2-e2e-transcript.txt",
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "session": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "session"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_messages",
@@ -218,23 +408,58 @@
    },
    "example": {
     "session": "session-1",
-    "offset": 0,
-    "limit": 50
+    "limit": 1
    },
    "response": {
+    "session": "session-1",
     "messages": [
      {
-      "role": "user"
-     },
-     {
-      "role": "assistant"
+      "role": "user",
+      "text": "A4_CONTROL_OK"
      }
     ],
-    "total": 2,
-    "offset": 0
+    "totalMessages": 2,
+    "nextCursor": "eyJ2ZXJzaW9uIjoxLCJzZXNzaW9uSWQiOiIwMWExOGE5ZS02OGRkLTcxNWYtOTZhNS1jMDBkMDFhNGY4MzAiLCJsZWFmSWQiOiJjNzk0MjRiMiIsIm1lc3NhZ2VDb3VudCI6Miwib2Zmc2V0IjoxfQ"
    },
-   "responseKind": "illustrative",
-   "responseSource": null
+   "responseKind": "real",
+   "responseSource": "evidence/v2/controls-live.json",
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "cursor": {
+      "description": "Stable page cursor returned by the previous call.",
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "limit": {
+      "description": "Bounded page size, maximum 100.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "offset": {
+      "description": "Legacy offset for starting without a cursor.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": [
+       "integer",
+       "null"
+      ]
+     },
+     "session": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "session"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_set_model",
@@ -248,14 +473,38 @@
    "example": {
     "session": "session-1",
     "provider": "opencode-go",
-    "model_id": "deepseek-v4.1-flash"
+    "model_id": "deepseek-v4-pro"
    },
    "response": {
-    "operationId": "operation-5",
-    "model": "opencode-go/deepseek-v4.1-flash"
+    "session": "session-1",
+    "model": {
+     "provider": "opencode-go",
+     "id": "deepseek-v4-pro",
+     "name": "DeepSeek V4 Pro (New)"
+    }
    },
-   "responseKind": "illustrative",
-   "responseSource": null
+   "responseKind": "real",
+   "responseSource": "evidence/v2/controls-live.json",
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "model_id": {
+      "type": "string"
+     },
+     "provider": {
+      "type": "string"
+     },
+     "session": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "session",
+     "provider",
+     "model_id"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_compact",
@@ -266,14 +515,35 @@
     "session": "string"
    },
    "example": {
-    "session": "session-1"
+    "session": "session-1",
+    "instructions": "Keep only the A4_CONTROL_OK marker."
    },
    "response": {
-    "operationId": "operation-6",
+    "admission": "pending",
+    "operationId": "operation-3",
+    "session": "session-1",
     "status": "running_or_unknown"
    },
-   "responseKind": "illustrative",
-   "responseSource": null
+   "responseKind": "real",
+   "responseSource": "evidence/v2/controls-live.json",
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "instructions": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "session": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "session"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_abort",
@@ -291,7 +561,19 @@
     "sessionSettled": null
    },
    "responseKind": "illustrative",
-   "responseSource": null
+   "responseSource": null,
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "session": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "session"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_stop",
@@ -308,7 +590,19 @@
     "stopped": true
    },
    "responseKind": "real",
-   "responseSource": "demo/codex-i9-e2e-transcript.txt"
+   "responseSource": "demo/codex-i9-e2e-transcript.txt",
+   "inputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+     "session": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "session"
+    ],
+    "type": "object"
+   }
   },
   {
    "name": "omp_list",
@@ -326,8 +620,12 @@
     ],
     "scope": "this_bridge_process"
    },
-   "responseKind": "real",
-   "responseSource": "evidence/mcp-smoke-i9-final.json"
+   "responseKind": "illustrative",
+   "responseSource": null,
+   "inputSchema": {
+    "properties": {},
+    "type": "object"
+   }
   }
  ]
 }
