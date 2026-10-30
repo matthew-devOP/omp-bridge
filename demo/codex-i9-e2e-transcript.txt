@@ -1,0 +1,9 @@
+Passed. Actual omp-bridge evidence:
+
+- Started `session-1` in `/private/tmp`, model `opencode-go/deepseek-v4.1-flash`, `no_tools=true`.
+- Sent exactly one prompt with `wait=true`; output: `OMP_BRIDGE_FINAL_OK`.
+- Filtered events confirmed `prompt_result` with `status="completed"`, `sessionSettled=true`, plus `session_settled`. No dropped events or gap.
+- Stop returned `{"session":"session-1","stopped":true}`.
+- Total elapsed: 20 seconds, within 90 seconds.
+
+Structured evidence: evidence/codex-i9-final.json. MCP calls were executed from Codex CLI with normal automatic review, not bypass.

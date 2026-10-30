@@ -1,0 +1,18 @@
+{
+  "test": "actual_codex_cli_mcp_final",
+  "passed": true,
+  "testedCommit": "672c3f0",
+  "codexThread": "01a18a63-a781-7631-979c-c895e231708e",
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "response": "OMP_BRIDGE_FINAL_OK",
+  "operationId": "operation-2",
+  "sessionSettled": true,
+  "stopped": true,
+  "promptsSent": 1,
+  "toolsCalled": [
+    "omp_start",
+    "omp_send",
+    "omp_events",
+    "omp_stop"
+  ]
+}
