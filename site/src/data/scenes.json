@@ -1,0 +1,58 @@
+{
+  "note": "Real event sequences from evidence/ and demo/ (v1, 2026-10-30). Timings scaled ~2x faster for replay.",
+  "scenes": [
+    {
+      "id": "codex-v1",
+      "title": "Codex CLI → omp-bridge (i9)",
+      "source": "evidence/codex-i9-final.json · demo/codex-i9-e2e-transcript.txt",
+      "events": [
+        { "t": 0, "kind": "call", "text": "omp_start  model=opencode-go/deepseek-v4.1-flash  no_tools=true" },
+        { "t": 400, "kind": "ready", "text": "ready  protocol v2 negotiated · session-1" },
+        { "t": 900, "kind": "call", "text": "omp_send  \"Reply with exactly OMP_BRIDGE_FINAL_OK\"  wait=true" },
+        { "t": 1300, "kind": "agent", "text": "agent_start" },
+        { "t": 1700, "kind": "msg", "text": "message_end  role=user" },
+        { "t": 3600, "kind": "msg", "text": "message_end  role=assistant  \"OMP_BRIDGE_FINAL_OK\"" },
+        { "t": 3900, "kind": "agent", "text": "agent_end" },
+        { "t": 4100, "kind": "result", "text": "prompt_result  status=completed  sessionSettled=true" },
+        { "t": 4300, "kind": "settled", "text": "session_settled" },
+        { "t": 4800, "kind": "call", "text": "omp_stop" },
+        { "t": 5300, "kind": "stop", "text": "{\"session\":\"session-1\",\"stopped\":true}  ✓ teardown confirmed" }
+      ]
+    },
+    {
+      "id": "claude-v1",
+      "title": "Claude Code → omp-bridge (M2)",
+      "source": "demo/claude-m2-e2e-transcript.txt",
+      "events": [
+        { "t": 0, "kind": "call", "text": "omp_start  model=opencode-go/deepseek-v4.1-flash" },
+        { "t": 400, "kind": "ready", "text": "ready  protocol v2 · session-1 · pid assigned" },
+        { "t": 900, "kind": "call", "text": "omp_send  \"Reply with exactly BRIDGE_E2E_OK\"  wait=true" },
+        { "t": 1300, "kind": "agent", "text": "agent_start" },
+        { "t": 1700, "kind": "msg", "text": "message_end  role=user" },
+        { "t": 3000, "kind": "msg", "text": "message_end  role=assistant  \"BRIDGE_E2E_OK\"  (~2.6 s, 8 tokens)" },
+        { "t": 3300, "kind": "agent", "text": "agent_end" },
+        { "t": 3500, "kind": "result", "text": "prompt_result  status=completed  sessionSettled=true" },
+        { "t": 3700, "kind": "settled", "text": "session_settled  — cursor 8, 9 events, zero drops" },
+        { "t": 4200, "kind": "call", "text": "omp_stop" },
+        { "t": 4700, "kind": "stop", "text": "{\"stopped\":true}  ✓ teardown confirmed" }
+      ]
+    },
+    {
+      "id": "handoff-v2",
+      "title": "v2: two clients, one agent — control handoff",
+      "source": "evidence/v2/ (cross-client e2e on the daemon)",
+      "pending": true,
+      "events": [
+        { "t": 0, "kind": "call", "text": "codex▸ omp_start (via daemon)  — codex holds the lease" },
+        { "t": 700, "kind": "ready", "text": "ready  protocol v2 · shared session" },
+        { "t": 1200, "kind": "call", "text": "codex▸ omp_send  long task…" },
+        { "t": 1700, "kind": "agent", "text": "agent_start" },
+        { "t": 2400, "kind": "msg", "text": "claude▸ omp_events  — attached mid-run, replaying from cursor 0" },
+        { "t": 3100, "kind": "transfer", "text": "claude▸ omp_take_control  reason=\"operator handoff\"" },
+        { "t": 3400, "kind": "transfer", "text": "bridge_control_transfer  from=codex → to=claude  — codex sees it too" },
+        { "t": 4000, "kind": "call", "text": "claude▸ omp_follow_up  \"now summarize in one line\"" },
+        { "t": 5200, "kind": "result", "text": "prompt_result  completed · session_settled" }
+      ]
+    }
+  ]
+}

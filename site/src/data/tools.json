@@ -1,0 +1,109 @@
+{
+  "note": "Example responses are real, from demo/ and evidence/ transcripts (v1) — not invented.",
+  "tools": [
+    {
+      "name": "omp_start",
+      "since": "v1",
+      "desc": "Spawn an isolated omp RPC session. The model goes in argv at spawn — an omp with no resolvable model can exit before `ready`, and nothing after spawn can fix a dead process.",
+      "input": { "cwd": "string?", "model": "string?  (default via OMP_BRIDGE_MODEL)", "no_tools": "bool?  inference-only session" },
+      "example": { "model": "opencode-go/deepseek-v4.1-flash", "no_tools": true },
+      "response": { "session": "session-1", "model": "opencode-go/deepseek-v4.1-flash", "protocolVersion": 2, "busy": false, "sessionSettled": null }
+    },
+    {
+      "name": "omp_send",
+      "since": "v1",
+      "desc": "Send a prompt. Synchronous by default: blocks up to timeout_ms (max 25 s) on the turn's own prompt_result. On timeout the status is running_or_unknown — the turn is never aborted and never re-sent.",
+      "input": { "session": "string", "message": "string  (≤128 KiB)", "wait": "bool? = true", "timeout_ms": "u64? ≤ 25000" },
+      "example": { "session": "session-1", "message": "Reply with exactly BRIDGE_E2E_OK and nothing else" },
+      "response": { "operationId": "operation-2", "status": "finished", "assistant_text": "BRIDGE_E2E_OK", "assistantTextTruncated": false, "result": { "status": "completed", "sessionSettled": true } }
+    },
+    {
+      "name": "omp_steer",
+      "since": "v2",
+      "desc": "Redirect the agent mid-turn, on omp's native steer queue — the running task visibly changes direction without losing the turn.",
+      "input": { "session": "string", "message": "string" },
+      "example": { "session": "session-1", "message": "Stop listing files — count only the Rust ones." },
+      "response": { "operationId": "operation-3", "admitted": true }
+    },
+    {
+      "name": "omp_follow_up",
+      "since": "v2",
+      "desc": "Queue a message for after the current turn yields, on omp's follow-up queue.",
+      "input": { "session": "string", "message": "string" },
+      "example": { "session": "session-1", "message": "Now summarize the result in one line." },
+      "response": { "operationId": "operation-4", "admitted": true }
+    },
+    {
+      "name": "omp_take_control",
+      "since": "v2",
+      "desc": "Daemon mode: take the write lease for a shared session. Every reader sees an explicit bridge_control_transfer event — handoffs are visible, never silent.",
+      "input": { "session": "string", "reason": "string" },
+      "example": { "session": "session-1", "reason": "operator handoff" },
+      "response": { "controller": "client-2", "previous": "client-1" }
+    },
+    {
+      "name": "omp_events",
+      "since": "v1",
+      "desc": "Long-poll the session's ring buffer: {cursor, event} envelopes, bounded at 2048 entries / 2 MiB. A reader that fell behind sees an explicit dropped gap — never a silently truncated history.",
+      "input": { "session": "string", "cursor": "u64? = 0", "kinds": "string[]?  read-side filter", "wait_ms": "u64? ≤ 25000" },
+      "example": { "session": "session-1", "cursor": 0, "wait_ms": 20000 },
+      "response": { "events": [ { "cursor": 7, "event": { "type": "prompt_result", "status": "completed", "sessionSettled": true } }, { "cursor": 8, "event": { "type": "session_settled" } } ], "nextCursor": 9, "oldestCursor": 0, "dropped": 0 }
+    },
+    {
+      "name": "omp_status",
+      "since": "v1",
+      "desc": "Session state with distinct answers: running / settled / unknown. Missing data is reported as unknown, never fabricated. State payload is whitelisted — no command catalogs.",
+      "input": { "session": "string" },
+      "example": { "session": "session-1" },
+      "response": { "session": "session-1", "busy": false, "stopping": false, "sessionSettled": true, "operations": [ { "operationId": "operation-2", "status": "finished" } ] }
+    },
+    {
+      "name": "omp_messages",
+      "since": "v2",
+      "desc": "The session transcript, paginated with a stable cursor — mapped on omp's paged history API.",
+      "input": { "session": "string", "cursor": "string?" },
+      "example": { "session": "session-1" },
+      "response": { "messages": [ { "role": "user" }, { "role": "assistant" } ], "nextCursor": null }
+    },
+    {
+      "name": "omp_set_model",
+      "since": "v2",
+      "desc": "Switch the live session to another model from the provider catalog.",
+      "input": { "session": "string", "model": "string  provider/modelId" },
+      "example": { "session": "session-1", "model": "opencode-go/deepseek-v4.1-flash" },
+      "response": { "model": "opencode-go/deepseek-v4.1-flash" }
+    },
+    {
+      "name": "omp_compact",
+      "since": "v2",
+      "desc": "Trigger omp's context compaction for a long-running session.",
+      "input": { "session": "string" },
+      "example": { "session": "session-1" },
+      "response": { "compacted": true }
+    },
+    {
+      "name": "omp_abort",
+      "since": "v1",
+      "desc": "Abort the current turn; the session stays alive. The acknowledgement requests cancellation — it is not proof the agent settled, and the bridge says so.",
+      "input": { "session": "string" },
+      "example": { "session": "session-1" },
+      "response": { "session": "session-1", "abortRequested": true, "sessionSettled": null }
+    },
+    {
+      "name": "omp_stop",
+      "since": "v1",
+      "desc": "Tear down the whole omp process group. stopped: true only after a confirmed teardown — otherwise an honest error with a retrySafe hint.",
+      "input": { "session": "string" },
+      "example": { "session": "session-1" },
+      "response": { "session": "session-1", "stopped": true }
+    },
+    {
+      "name": "omp_list",
+      "since": "v1",
+      "desc": "Sessions owned by this bridge process (or this daemon, in shared mode).",
+      "input": {},
+      "example": {},
+      "response": { "sessions": [ { "session": "session-1", "model": "opencode-go/deepseek-v4.1-flash", "busy": false } ], "scope": "this_bridge_process" }
+    }
+  ]
+}

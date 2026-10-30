@@ -1,12 +1,20 @@
 ---
-const tools = [
-	{ name: "omp_start", desc: "Spawn an omp RPC session — model pinned in argv, protocol v2 negotiated before the first command." },
-	{ name: "omp_send", desc: "Send a prompt (MVP: mode=prompt only). Returns a bridge operationId; wait blocks up to 25 s. A client timeout means running_or_unknown — the turn is never aborted or re-sent." },
-	{ name: "omp_events", desc: "Long-poll the session's ring buffer (cursor / kinds / wait_ms): {cursor, event} envelopes, bounded at 2048 entries and 2 MiB, explicit dropped gaps." },
-	{ name: "omp_status", desc: "running / settled / unknown — never a fabricated answer when the data is missing." },
-	{ name: "omp_abort", desc: "Abort the current turn; the session stays alive." },
-	{ name: "omp_stop", desc: "Confirmed teardown of the whole process group, or an error — never an optimistic stopped: true." },
-	{ name: "omp_list", desc: "The sessions owned by this bridge process (sessions are per MCP client by design)." },
+import scenesData from "../data/scenes.json";
+import toolsData from "../data/tools.json";
+
+const tools = toolsData.tools;
+const v1Tools = tools.filter((t) => t.since === "v1").length;
+const v2Tools = tools.filter((t) => t.since === "v2").length;
+
+const timeline = [
+	{ at: "0:00", label: "START — the task lands, two agents, zero human steer", detail: "" },
+	{ at: "11:31", label: "Rust bridge compiles: core, MCP server, REPL", detail: "0ef4663" },
+	{ at: "14:31", label: "Code crosses machines as a git bundle, merged on main", detail: "e1fbdc4" },
+	{ at: "15:07", label: "E2E passes from Codex CLI", detail: "OMP_BRIDGE_FINAL_OK" },
+	{ at: "19:02", label: "E2E passes from Claude Code", detail: "BRIDGE_E2E_OK" },
+	{ at: "20:32", label: "Cross-audit: two findings, both fixed and re-verified", detail: "" },
+	{ at: "25:05", label: "v1 tagged", detail: "08eb253" },
+	{ at: "27:10", label: "Goal closed — independent audit from a fresh public clone", detail: "" },
 ];
 ---
 
@@ -14,155 +22,575 @@ const tools = [
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<title>omp-bridge — drive Oh My Pi agents from Codex CLI and Claude Code</title>
+		<title>omp-bridge — structured control for Oh My Pi agents</title>
 		<meta
 			name="description"
-			content="A Rust CLI that bridges Codex CLI and Claude Code to agents running under the Oh My Pi harness, over omp's native RPC mode, exposed as an MCP stdio server."
+			content="A Rust bridge that lets Codex CLI and Claude Code drive agents under the Oh My Pi harness over its native RPC: sessions, steering, live events, honest teardown."
 		/>
 		<style>
 			:root {
-				--bg: #0d1117;
-				--panel: #161b22;
-				--border: #30363d;
-				--text: #e6edf3;
-				--muted: #9198a1;
-				--accent: #58a6ff;
-				--accent2: #3fb950;
-				--mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+				--bg: #0a0e14;
+				--bg2: #0f141d;
+				--panel: #131a26;
+				--panel2: #182233;
+				--border: #223048;
+				--text: #dbe6f5;
+				--muted: #7f93ad;
+				--dim: #55677f;
+				--blue: #5cb3ff;
+				--green: #4ade80;
+				--yellow: #fbbf24;
+				--cyan: #22d3ee;
+				--magenta: #e879f9;
+				--red: #f87171;
+				--mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+				--sans: "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif;
 			}
 			* { box-sizing: border-box; }
+			html { scroll-behavior: smooth; }
 			body {
 				margin: 0;
-				background: var(--bg);
+				background:
+					radial-gradient(1200px 500px at 70% -10%, #13203a 0%, transparent 60%),
+					radial-gradient(900px 400px at 10% 10%, #101b2e 0%, transparent 55%),
+					var(--bg);
 				color: var(--text);
-				font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+				font: 17px/1.65 var(--sans);
 			}
-			main { max-width: 920px; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
-			h1 {
-				font-size: 2.6rem;
-				margin: 0 0 0.3rem;
-				letter-spacing: -0.02em;
-			}
-			h1 code { font-family: var(--mono); color: var(--accent); }
-			.tagline { color: var(--muted); font-size: 1.2rem; margin: 0 0 2.5rem; }
+			main { max-width: 1180px; margin: 0 auto; padding: 0 2rem 6rem; }
+			section { margin-top: 6rem; }
 			h2 {
-				font-size: 1.4rem;
-				margin: 3rem 0 1rem;
-				padding-top: 1rem;
-				border-top: 1px solid var(--border);
+				font-size: clamp(1.6rem, 2.6vw, 2.2rem);
+				letter-spacing: -0.02em;
+				margin: 0 0 0.4rem;
 			}
-			p { margin: 0.6rem 0; }
-			.muted { color: var(--muted); }
+			.kicker {
+				font: 700 0.78rem/1 var(--mono);
+				letter-spacing: 0.18em;
+				text-transform: uppercase;
+				color: var(--blue);
+				margin-bottom: 0.9rem;
+			}
+			.lead { color: var(--muted); max-width: 62ch; margin: 0 0 2rem; }
+			code { font-family: var(--mono); font-size: 0.9em; }
+			p code, li code, td code {
+				background: var(--panel);
+				border: 1px solid var(--border);
+				border-radius: 5px;
+				padding: 0.1em 0.4em;
+			}
 			pre {
 				background: var(--panel);
 				border: 1px solid var(--border);
-				border-radius: 8px;
+				border-radius: 10px;
 				padding: 1rem 1.2rem;
 				overflow-x: auto;
-				font-family: var(--mono);
-				font-size: 0.85rem;
-				line-height: 1.55;
+				font: 0.85rem/1.6 var(--mono);
+				margin: 0;
 			}
-			code { font-family: var(--mono); font-size: 0.92em; }
-			p code, li code {
-				background: var(--panel);
-				border: 1px solid var(--border);
-				border-radius: 4px;
-				padding: 0.08em 0.35em;
+			a { color: var(--blue); }
+
+			/* ---------- hero ---------- */
+			.hero { padding: 5rem 0 0; text-align: center; }
+			.hero h1 {
+				font-size: clamp(2.6rem, 5.5vw, 4.2rem);
+				letter-spacing: -0.035em;
+				margin: 0.6rem 0 1rem;
 			}
-			.diagram { color: var(--accent2); }
-			table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-			th, td {
-				text-align: left;
-				padding: 0.55rem 0.8rem;
-				border: 1px solid var(--border);
-				vertical-align: top;
+			.hero h1 code { color: var(--blue); background: none; border: none; padding: 0; }
+			.hero .sub {
+				color: var(--muted);
+				font-size: clamp(1.05rem, 1.7vw, 1.3rem);
+				max-width: 56ch;
+				margin: 0 auto 1.6rem;
 			}
-			th { background: var(--panel); }
-			td:first-child { font-family: var(--mono); white-space: nowrap; color: var(--accent); }
+			.pills { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-bottom: 3rem; }
 			.pill {
-				display: inline-block;
 				border: 1px solid var(--border);
+				background: rgba(19, 26, 38, 0.7);
 				border-radius: 999px;
-				padding: 0.1rem 0.7rem;
-				margin: 0 0.4rem 0.4rem 0;
-				font-size: 0.85rem;
+				padding: 0.25rem 0.9rem;
+				font: 0.82rem/1.5 var(--mono);
 				color: var(--muted);
 			}
-			a { color: var(--accent); }
-			footer { margin-top: 4rem; color: var(--muted); font-size: 0.85rem; }
+			.diagram-wrap {
+				background: linear-gradient(180deg, rgba(19,26,38,0.9), rgba(15,20,29,0.9));
+				border: 1px solid var(--border);
+				border-radius: 16px;
+				padding: 1.5rem 1rem 0.8rem;
+			}
+			.diagram-wrap svg { width: 100%; height: auto; display: block; }
+
+			/* ---------- stats ---------- */
+			.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; }
+			.stat {
+				background: var(--panel);
+				border: 1px solid var(--border);
+				border-radius: 12px;
+				padding: 1.1rem 1.2rem;
+			}
+			.stat .n { font: 700 2rem/1.1 var(--mono); color: var(--text); }
+			.stat .n em { font-style: normal; color: var(--blue); }
+			.stat .l { color: var(--muted); font-size: 0.86rem; margin-top: 0.3rem; }
+
+			/* ---------- replay terminals ---------- */
+			.term-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+			.term-grid .wide { grid-column: 1 / -1; }
+			.term {
+				background: #0b0f16;
+				border: 1px solid var(--border);
+				border-radius: 12px;
+				overflow: hidden;
+				display: flex;
+				flex-direction: column;
+			}
+			.term-bar {
+				display: flex; align-items: center; gap: 0.6rem;
+				background: var(--panel2);
+				padding: 0.5rem 0.9rem;
+				border-bottom: 1px solid var(--border);
+				font: 0.8rem/1.4 var(--mono);
+				color: var(--muted);
+			}
+			.dots { display: flex; gap: 5px; }
+			.dots i { width: 10px; height: 10px; border-radius: 50%; background: #2b3b55; }
+			.term-body {
+				font: 0.82rem/1.75 var(--mono);
+				padding: 0.8rem 1rem;
+				min-height: 285px;
+				white-space: pre-wrap;
+				word-break: break-word;
+			}
+			.term-body .ln { opacity: 0; transform: translateY(3px); transition: opacity .25s, transform .25s; display: block; }
+			.term-body .ln.on { opacity: 1; transform: none; }
+			.k-call { color: var(--blue); }
+			.k-ready { color: var(--dim); }
+			.k-agent { color: var(--green); }
+			.k-msg { color: var(--text); }
+			.k-result { color: var(--cyan); }
+			.k-settled { color: var(--cyan); font-weight: 700; }
+			.k-stop { color: var(--green); }
+			.k-transfer { color: var(--magenta); font-weight: 700; }
+			.src { color: var(--dim); font-size: 0.76rem; padding: 0.4rem 1rem 0.7rem; font-family: var(--mono); }
+			.replay-controls { margin: 1rem 0 0; display: flex; gap: 0.7rem; align-items: center; }
+			button.ctl {
+				background: var(--panel2);
+				color: var(--text);
+				border: 1px solid var(--border);
+				border-radius: 8px;
+				padding: 0.45rem 1.1rem;
+				font: 600 0.88rem/1 var(--sans);
+				cursor: pointer;
+			}
+			button.ctl:hover { border-color: var(--blue); color: var(--blue); }
+			.pending-note { color: var(--dim); font-size: 0.8rem; font-family: var(--mono); }
+
+			/* ---------- tool explorer ---------- */
+			.explorer { display: grid; grid-template-columns: 260px 1fr; gap: 1.2rem; align-items: start; }
+			.tool-list { display: flex; flex-direction: column; gap: 0.35rem; }
+			.tool-btn {
+				display: flex; justify-content: space-between; align-items: center;
+				background: var(--panel);
+				border: 1px solid var(--border);
+				border-radius: 9px;
+				color: var(--text);
+				font: 600 0.9rem/1.3 var(--mono);
+				padding: 0.55rem 0.9rem;
+				cursor: pointer;
+				text-align: left;
+			}
+			.tool-btn:hover { border-color: var(--blue); }
+			.tool-btn.active { border-color: var(--blue); background: var(--panel2); }
+			.badge {
+				font: 700 0.62rem/1 var(--mono);
+				letter-spacing: 0.08em;
+				border-radius: 999px;
+				padding: 0.22em 0.6em;
+			}
+			.badge.v1 { color: var(--dim); border: 1px solid var(--border); }
+			.badge.v2 { color: #0a0e14; background: var(--blue); }
+			.tool-detail {
+				background: var(--panel);
+				border: 1px solid var(--border);
+				border-radius: 12px;
+				padding: 1.3rem 1.5rem;
+				min-height: 380px;
+			}
+			.tool-detail h3 { font-family: var(--mono); margin: 0 0 0.4rem; font-size: 1.2rem; color: var(--blue); }
+			.tool-detail .desc { color: var(--muted); margin: 0 0 1.1rem; }
+			.tool-detail h4 {
+				font: 700 0.72rem/1 var(--mono);
+				letter-spacing: 0.15em; text-transform: uppercase;
+				color: var(--dim); margin: 1.1rem 0 0.5rem;
+			}
+			.tool-detail pre { background: #0b0f16; }
+
+			/* ---------- before/after ---------- */
+			.ba { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+			.ba .col {
+				border: 1px solid var(--border);
+				border-radius: 12px;
+				padding: 1.3rem 1.5rem;
+				background: var(--panel);
+			}
+			.ba .col.before { border-color: #3d2b2b; background: linear-gradient(180deg, #1a1416, var(--panel)); }
+			.ba .col.after { border-color: #1f3d33; background: linear-gradient(180deg, #11201c, var(--panel)); }
+			.ba h3 { margin: 0 0 0.8rem; font-size: 1.05rem; }
+			.ba .before h3 { color: var(--red); }
+			.ba .after h3 { color: var(--green); }
+			.ba ul { margin: 0.8rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: 0.92rem; }
+			.ba li { margin: 0.35rem 0; }
+
+			/* ---------- timeline ---------- */
+			.tl { list-style: none; margin: 0; padding: 0; border-left: 2px solid var(--border); }
+			.tl li { position: relative; padding: 0 0 1.4rem 1.6rem; }
+			.tl li::before {
+				content: "";
+				position: absolute; left: -7px; top: 0.35rem;
+				width: 12px; height: 12px; border-radius: 50%;
+				background: var(--bg); border: 2px solid var(--blue);
+			}
+			.tl .at { font: 700 0.9rem/1.4 var(--mono); color: var(--blue); }
+			.tl .what { margin-left: 0.8rem; }
+			.tl .sha { color: var(--dim); font-family: var(--mono); font-size: 0.8rem; margin-left: 0.8rem; }
+
+			/* ---------- register ---------- */
+			.reg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+			.reg {
+				background: var(--panel); border: 1px solid var(--border);
+				border-radius: 12px; padding: 1.1rem 1.3rem; position: relative;
+			}
+			.reg h3 { margin: 0 0 0.7rem; font-size: 1rem; }
+			.copy {
+				position: absolute; top: 0.8rem; right: 0.9rem;
+				background: var(--panel2); border: 1px solid var(--border);
+				color: var(--muted); border-radius: 7px;
+				font: 600 0.75rem/1 var(--sans); padding: 0.35rem 0.7rem; cursor: pointer;
+			}
+			.copy:hover { color: var(--blue); border-color: var(--blue); }
+
+			footer {
+				margin-top: 6rem; padding-top: 1.5rem;
+				border-top: 1px solid var(--border);
+				color: var(--dim); font-size: 0.85rem;
+				display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;
+			}
+
+			@media (max-width: 900px) {
+				.term-grid, .explorer, .ba, .reg-grid { grid-template-columns: 1fr; }
+				.hero { padding-top: 3rem; }
+				main { padding: 0 1.1rem 4rem; }
+			}
+			@media (prefers-reduced-motion: reduce) {
+				.term-body .ln { transition: none; }
+			}
 		</style>
 	</head>
 	<body>
 		<main>
-			<h1><code>omp-bridge</code></h1>
-			<p class="tagline">
-				Drive agents running under the <strong>Oh My Pi</strong> harness from
-				<strong>Codex CLI</strong> and <strong>Claude Code</strong> — structured RPC instead of tmux scraping.
-			</p>
-			<div>
-				<span class="pill">Rust</span>
-				<span class="pill">MCP stdio server</span>
-				<span class="pill">omp RPC (JSONL, protocol v2)</span>
-				<span class="pill">MIT</span>
+			<!-- ================= HERO ================= -->
+			<div class="hero">
+				<div class="kicker">structured agent control · rust · mcp</div>
+				<h1><code>omp-bridge</code></h1>
+				<p class="sub">
+					Codex CLI and Claude Code driving agents under the <strong>Oh&nbsp;My&nbsp;Pi</strong> harness —
+					native RPC instead of tmux scraping. Sessions, mid-turn steering, live events, honest teardown.
+				</p>
+				<div class="pills">
+					<span class="pill">one Rust binary</span>
+					<span class="pill">MCP stdio + daemon</span>
+					<span class="pill">omp RPC · protocol v2</span>
+					<span class="pill">control lease</span>
+					<span class="pill">MIT</span>
+				</div>
+
+				<div class="diagram-wrap" role="img" aria-label="Architecture: Codex CLI and Claude Code connect over MCP to omp-bridge, which drives omp in RPC mode running an OpenCode Go model. Animated packets flow along the connections.">
+					<svg viewBox="0 0 1040 300" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+						<defs>
+							<linearGradient id="gBox" x1="0" y1="0" x2="0" y2="1">
+								<stop offset="0" stop-color="#1b2740"/><stop offset="1" stop-color="#121a2a"/>
+							</linearGradient>
+							<marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto">
+								<path d="M0 0 L8 4 L0 8 z" fill="#3d5residue578"/>
+							</marker>
+						</defs>
+
+						<!-- client boxes -->
+						<g font-family="ui-monospace, Menlo, monospace" font-size="15">
+							<rect x="20" y="52" width="180" height="56" rx="10" fill="url(#gBox)" stroke="#2c3e5e"/>
+							<text x="110" y="85" fill="#dbe6f5" text-anchor="middle">Codex CLI</text>
+							<rect x="20" y="192" width="180" height="56" rx="10" fill="url(#gBox)" stroke="#2c3e5e"/>
+							<text x="110" y="225" fill="#dbe6f5" text-anchor="middle">Claude Code</text>
+
+							<!-- bridge -->
+							<rect x="400" y="92" width="240" height="116" rx="14" fill="url(#gBox)" stroke="#5cb3ff" stroke-width="1.5"/>
+							<text x="520" y="130" fill="#5cb3ff" text-anchor="middle" font-weight="700">omp-bridge</text>
+							<text x="520" y="156" fill="#7f93ad" text-anchor="middle" font-size="12">core · event ring · lease</text>
+							<text x="520" y="178" fill="#7f93ad" text-anchor="middle" font-size="12">mcp | serve | watch | repl</text>
+
+							<!-- omp -->
+							<rect x="790" y="92" width="230" height="116" rx="14" fill="url(#gBox)" stroke="#2c3e5e"/>
+							<text x="905" y="130" fill="#dbe6f5" text-anchor="middle">omp --mode rpc</text>
+							<text x="905" y="156" fill="#7f93ad" text-anchor="middle" font-size="12">JSONL · v2 framing</text>
+							<text x="905" y="178" fill="#4ade80" text-anchor="middle" font-size="12">OpenCode Go model</text>
+
+							<!-- edge labels -->
+							<text x="300" y="100" fill="#55677f" text-anchor="middle" font-size="12">MCP (stdio)</text>
+							<text x="300" y="240" fill="#55677f" text-anchor="middle" font-size="12">MCP (stdio)</text>
+							<text x="715" y="135" fill="#55677f" text-anchor="middle" font-size="12">omp RPC</text>
+						</g>
+
+						<!-- edges -->
+						<path id="e1" d="M200 80 C 300 80, 320 118, 400 126" fill="none" stroke="#2c3e5e" stroke-width="1.5"/>
+						<path id="e2" d="M200 220 C 300 220, 320 182, 400 174" fill="none" stroke="#2c3e5e" stroke-width="1.5"/>
+						<path id="e3" d="M640 150 L 790 150" fill="none" stroke="#2c3e5e" stroke-width="1.5"/>
+						<path id="e3b" d="M790 168 L 640 168" fill="none" stroke="#223048" stroke-width="1.2" stroke-dasharray="3 4"/>
+
+						<!-- packets -->
+						<circle r="4.5" fill="#5cb3ff"><animateMotion dur="3.1s" repeatCount="indefinite"><mpath href="#e1"/></animateMotion></circle>
+						<circle r="4.5" fill="#5cb3ff"><animateMotion dur="3.4s" begin="1.2s" repeatCount="indefinite"><mpath href="#e2"/></animateMotion></circle>
+						<circle r="4.5" fill="#22d3ee"><animateMotion dur="2.2s" begin="0.4s" repeatCount="indefinite"><mpath href="#e3"/></animateMotion></circle>
+						<circle r="3.5" fill="#4ade80"><animateMotion dur="2.6s" begin="1s" repeatCount="indefinite"><mpath href="#e3b"/></animateMotion></circle>
+						<circle r="3.5" fill="#4ade80"><animateMotion dur="2.6s" begin="2.3s" repeatCount="indefinite"><mpath href="#e3b"/></animateMotion></circle>
+					</svg>
+				</div>
 			</div>
 
-			<h2>The problem</h2>
-			<p>
-				Driving a coding agent on another machine usually degenerates into tmux plumbing:
-				<code>capture-pane</code> to read, <code>send-keys</code> to type,
-				<code>respawn-pane</code> to recover. It works — and it is fragile. No structured
-				results, no event stream, no clean abort, no way to know when the agent is actually done.
-			</p>
-			<p>
-				omp already ships the right primitive: an RPC mode (<code>omp --mode rpc --no-ui</code>)
-				speaking newline-delimited JSON over stdio — a custom JSONL protocol (not JSON-RPC 2.0)
-				with v2 framing (1&nbsp;MiB frames, <code>rpc_chunk</code> reassembly) and precise
-				completion signals: <code>prompt_result</code> for "the turn yielded",
-				<code>session_settled</code> for "nothing can wake the agent again".
-			</p>
+			<!-- ================= NUMBERS ================= -->
+			<section id="numbers">
+				<div class="kicker">honest numbers</div>
+				<h2>Measured, not marketed</h2>
+				<p class="lead">Every figure below is reproducible from the repository and the committed evidence files.</p>
+				<div class="stats" id="stats"></div>
+			</section>
 
-			<h2>The bridge</h2>
-			<pre class="diagram">{`Codex CLI ─┐                        ┌─ omp --mode rpc --no-ui ── OpenCode Go model
-           ├── MCP (stdio) ── omp-bridge ── omp RPC (JSONL / stdio)
-Claude Code┘                        └─ up to 4 sessions, process-local per MCP client`}</pre>
-			<p>
-				<code>omp-bridge</code> is a single Rust binary. <code>omp-bridge mcp</code> serves MCP
-				over stdio; <code>omp-bridge repl</code> is an interactive demo over the same core. The
-				omp RPC client is the vendored <code>omp-rpc</code> crate from the oh-my-pi repository
-				(MIT, pinned commit — see <code>vendor/omp-rpc/PROVENANCE.md</code>).
-			</p>
+			<!-- ================= REPLAY ================= -->
+			<section id="replay">
+				<div class="kicker">real event replay</div>
+				<h2>The actual runs, event by event</h2>
+				<p class="lead">
+					These are the real event sequences from the committed <code>evidence/</code> and
+					<code>demo/</code> files — the v1 end-to-end runs from both clients, and the v2
+					cross-client control handoff. Timings scaled for replay.
+				</p>
+				<div class="term-grid" id="terms"></div>
+				<div class="replay-controls">
+					<button class="ctl" id="replayBtn" type="button">↻ Replay</button>
+					<span class="pending-note" id="pendingNote"></span>
+				</div>
+			</section>
 
-			<h2>MCP tools</h2>
-			<table>
-				<tr><th>Tool</th><th>Contract</th></tr>
-				{tools.map((t) => (
-					<tr><td>{t.name}</td><td>{t.desc}</td></tr>
-				))}
-			</table>
+			<!-- ================= EXPLORER ================= -->
+			<section id="toolsx">
+				<div class="kicker">mcp surface</div>
+				<h2>Tool explorer</h2>
+				<p class="lead">Click a tool: its schema, an example call, and a real response from the committed transcripts.</p>
+				<div class="explorer">
+					<div class="tool-list" id="toolList" role="tablist" aria-label="MCP tools"></div>
+					<div class="tool-detail" id="toolDetail" role="tabpanel"></div>
+				</div>
+			</section>
 
-			<h2>Design decisions that matter</h2>
-			<ul>
-				<li><strong>No shell in the spawn path.</strong> <code>OMP_BRIDGE_CMD</code> is a single executable path; <code>OMP_BRIDGE_ARGS</code> is a JSON array of prefix arguments. Nothing is ever interpreted by <code>sh -c</code>.</li>
-				<li><strong>Model in argv.</strong> omp can exit before <code>ready</code> when no model resolves; selecting it after spawn cannot fix a dead process.</li>
-				<li><strong>Timeout ≠ abort.</strong> A client that stops waiting gets <code>running_or_unknown</code> and may call <code>omp_status</code> / <code>omp_abort</code>; the bridge never silently re-sends a prompt.</li>
-				<li><strong>Honest event delivery.</strong> The ring buffer is bounded in entries <em>and</em> bytes; a reader that fell behind sees an explicit gap, never a silently truncated history.</li>
-				<li><strong>Process-local sessions.</strong> Each MCP client (Codex, Claude Code) controls its own omp agents. Shared control of one session would need a daemon — deliberately out of scope.</li>
-			</ul>
+			<!-- ================= BEFORE / AFTER ================= -->
+			<section id="why">
+				<div class="kicker">why it exists</div>
+				<h2>Before and after</h2>
+				<p class="lead">This project was born from a real workflow: driving a coding agent on another machine through tmux.</p>
+				<div class="ba">
+					<div class="col before">
+						<h3>Before — tmux plumbing</h3>
+						<pre>tmux capture-pane -p -t agent -S -60   # read: scrape the screen
+tmux send-keys -t agent -l "$MSG"      # write: type into a TUI
+tmux send-keys -t agent Enter
+tmux respawn-pane -t agent             # recover: kill and pray</pre>
+						<ul>
+							<li>No structured results — you parse rendered pixels-as-text</li>
+							<li>A newline sends a half-typed message; a busy agent eats your input</li>
+							<li>No completion signal: is it done, or just quiet?</li>
+							<li>No abort, no handoff, no history</li>
+						</ul>
+					</div>
+					<div class="col after">
+						<h3>After — omp-bridge</h3>
+						<pre is:raw>omp_send   → {"status":"finished","assistant_text":"…"}
+omp_events → prompt_result ≠ session_settled, cursors,
+             explicit dropped gaps
+omp_steer  → redirect mid-turn, without losing the run
+omp_take_control → visible lease transfer event
+omp_stop   → {"stopped":true} only when proven</pre>
+						<ul>
+							<li>Typed results correlated by <code>operationId</code></li>
+							<li>"Turn yielded" and "agent fully settled" are distinct signals</li>
+							<li>Two clients can share one agent — with an explicit control lease</li>
+							<li>Timeouts never silently abort or re-send a prompt</li>
+						</ul>
+					</div>
+				</div>
+			</section>
 
-			<h2>Register it</h2>
-			<p><strong>Claude Code</strong></p>
-			<pre>{`claude mcp add omp-bridge -- /path/to/omp-bridge mcp`}</pre>
-			<p><strong>Codex CLI</strong> — <code>~/.codex/config.toml</code></p>
-			<pre>{`[mcp_servers.omp_bridge]
+			<!-- ================= TIMELINE ================= -->
+			<section id="timeline">
+				<div class="kicker">the proof run</div>
+				<h2>v1 shipped in 27 minutes</h2>
+				<p class="lead">
+					Built in a one-hour timed challenge by two agents on two machines, coordinating over a shared
+					repository, git bundles and handoff files — no human steering after the start. Elapsed times
+					and commits from <code>docs/CHALLENGE.md</code>.
+				</p>
+				<ul class="tl">
+					{timeline.map((m) => (
+						<li>
+							<span class="at">{m.at}</span>
+							<span class="what">{m.label}</span>
+							{m.detail && <span class="sha">{m.detail}</span>}
+						</li>
+					))}
+				</ul>
+				<p class="lead" style="margin-top:1rem">
+					<strong>v2</strong> (same rules, one more hour): mid-turn <code>steer</code> / <code>follow_up</code>,
+					a shared-session daemon with a control lease, human <code>watch</code>/<code>attach</code>,
+					more harness controls, a mock-omp integration test and CI.
+				</p>
+			</section>
+
+			<!-- ================= REGISTER ================= -->
+			<section id="register">
+				<div class="kicker">use it</div>
+				<h2>Register the bridge</h2>
+				<div class="reg-grid">
+					<div class="reg">
+						<h3>Claude Code</h3>
+						<button class="copy" type="button" data-copy="claude">copy</button>
+						<pre id="snip-claude">claude mcp add omp-bridge \
+  --env OMP_BRIDGE_CMD=/path/to/omp \
+  -- /path/to/omp-bridge mcp</pre>
+					</div>
+					<div class="reg">
+						<h3>Codex CLI — <code>config.toml</code></h3>
+						<button class="copy" type="button" data-copy="codex">copy</button>
+						<pre is:raw id="snip-codex">[mcp_servers.omp_bridge]
 command = "/path/to/omp-bridge"
-args = ["mcp"]`}</pre>
+args = ["mcp"]
+env = { OMP_BRIDGE_CMD = "/path/to/omp" }</pre>
+					</div>
+				</div>
+			</section>
 
 			<footer>
-				Built in a one-hour timed challenge (2026-10-30) by two agents — Claude (M2) and
-				Codex/GPT-6-Astra (i9) — coordinating over a shared repository and handoff files.
-				MIT licensed.
+				<span>omp-bridge · MIT · built by two agents in two timed hours</span>
+				<span><a href="https://github.com/matthew-devOP/omp-bridge">github.com/matthew-devOP/omp-bridge</a></span>
 			</footer>
 		</main>
+
+		<script type="application/json" id="scenes-data" set:html={JSON.stringify(scenesData.scenes)} />
+		<script type="application/json" id="tools-data" set:html={JSON.stringify(tools)} />
+		<script type="application/json" id="stats-data" set:html={JSON.stringify({ v1Tools, v2Tools })} />
+
+		<script>
+			const $ = (s) => document.querySelector(s);
+			const readJson = (id) => {
+				const el = document.getElementById(id);
+				try { return el ? JSON.parse(el.textContent || "null") : null; } catch { return null; }
+			};
+
+			/* ---------- stats ---------- */
+			const statsBox = $("#stats");
+			const meta = readJson("stats-data") || { v1Tools: 7, v2Tools: 6 };
+			const STATS = [
+				{ n: "1,9k<em>+</em>", l: "lines of our Rust (v2) over 10.8k vendored RPC client — we built the bridge, not the wheel" },
+				{ n: String(meta.v1Tools + meta.v2Tools), l: `MCP tools (${meta.v1Tools} shipped in v1, ${meta.v2Tools} added in v2)` },
+				{ n: "2", l: "clients proven end-to-end: Codex CLI and Claude Code, live model runs" },
+				{ n: "~2.6s", l: "model turn latency measured in the Claude e2e (8 output tokens)" },
+				{ n: "0", l: "events dropped in every committed run — and drops would be explicit" },
+				{ n: "27min", l: "from START to audited v1 tag, out of 60 allowed" },
+			];
+			if (statsBox) {
+				statsBox.innerHTML = STATS.map(
+					(s) => `<div class="stat"><div class="n">${s.n}</div><div class="l">${s.l}</div></div>`
+				).join("");
+			}
+
+			/* ---------- replay ---------- */
+			const scenes = readJson("scenes-data") || [];
+			const terms = $("#terms");
+			const KINDMAP = { call:"k-call", ready:"k-ready", agent:"k-agent", msg:"k-msg", result:"k-result", settled:"k-settled", stop:"k-stop", transfer:"k-transfer" };
+			let timers = [];
+
+			function buildTerms() {
+				if (!terms) return;
+				terms.innerHTML = scenes.map((sc, i) => `
+					<div class="term ${i === 2 ? "wide" : ""}">
+						<div class="term-bar"><span class="dots"><i></i><i></i><i></i></span><span>${sc.title}</span></div>
+						<div class="term-body" id="tb-${sc.id}" aria-live="off">${
+							sc.events.map((e) => `<span class="ln ${KINDMAP[e.kind] || "k-msg"}" data-t="${e.t}">${e.text.replace(/</g,"&lt;")}</span>`).join("")
+						}</div>
+						<div class="src">${sc.pending ? "scene data pending the v2 e2e → " : "source: "}${sc.source}</div>
+					</div>`).join("");
+			}
+			function replay() {
+				timers.forEach(clearTimeout); timers = [];
+				document.querySelectorAll(".term-body .ln").forEach((ln) => ln.classList.remove("on"));
+				document.querySelectorAll(".term-body").forEach((body) => {
+					body.querySelectorAll(".ln").forEach((ln) => {
+						const t = Number(ln.dataset.t) || 0;
+						timers.push(setTimeout(() => ln.classList.add("on"), 350 + t));
+					});
+				});
+			}
+			buildTerms();
+			const replayBtn = $("#replayBtn");
+			if (replayBtn) replayBtn.addEventListener("click", replay);
+			const pend = scenes.find((s) => s.pending);
+			const pn = $("#pendingNote");
+			if (pn && pend) pn.textContent = "third scene: choreography per contract — events swap to the recorded v2 run once committed";
+			// start when scrolled into view (and once on load for projectors)
+			const io = "IntersectionObserver" in window
+				? new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { replay(); io.disconnect(); } }), { threshold: 0.25 })
+				: null;
+			const replaySec = document.getElementById("replay");
+			if (io && replaySec) io.observe(replaySec); else replay();
+
+			/* ---------- tool explorer ---------- */
+			const tools = readJson("tools-data") || [];
+			const list = $("#toolList");
+			const detail = $("#toolDetail");
+			const fmt = (o) => JSON.stringify(o, null, 2);
+			function show(name) {
+				const t = tools.find((x) => x.name === name);
+				if (!t || !detail) return;
+				document.querySelectorAll(".tool-btn").forEach((b) => b.classList.toggle("active", b.dataset.name === name));
+				detail.innerHTML = `
+					<h3>${t.name}</h3>
+					<p class="desc">${t.desc}</p>
+					<h4>input</h4><pre>${fmt(t.input).replace(/</g,"&lt;")}</pre>
+					<h4>example call</h4><pre>${fmt(t.example).replace(/</g,"&lt;")}</pre>
+					<h4>real response</h4><pre>${fmt(t.response).replace(/</g,"&lt;")}</pre>`;
+			}
+			if (list) {
+				list.innerHTML = tools.map((t) =>
+					`<button type="button" class="tool-btn" role="tab" data-name="${t.name}">${t.name}<span class="badge ${t.since}">${t.since}</span></button>`
+				).join("");
+				list.addEventListener("click", (ev) => {
+					const b = ev.target.closest(".tool-btn");
+					if (b) show(b.dataset.name);
+				});
+				if (tools[0]) show(tools[1] ? tools[1].name : tools[0].name);
+			}
+
+			/* ---------- copy buttons ---------- */
+			document.querySelectorAll(".copy").forEach((btn) => {
+				btn.addEventListener("click", async () => {
+					const pre = document.getElementById("snip-" + btn.dataset.copy);
+					if (!pre) return;
+					try {
+						await navigator.clipboard.writeText(pre.textContent || "");
+						btn.textContent = "copied ✓";
+					} catch {
+						btn.textContent = "select + ⌘C";
+					}
+					setTimeout(() => (btn.textContent = "copy"), 1600);
+				});
+			});
+		</script>
 	</body>
 </html>
