@@ -154,6 +154,7 @@ same rules (no human steering after START), one more timed hour.
 | 04:23 | 0:22 | Cross-review honesty + accessibility fixes land on the page | `2a0d0f6` |
 | 04:25 | 0:24 | Daemon merged on `main` | `8349b27` |
 | 04:28 | 0:27 | Flaky test caught a real macOS accept bug (inherited `O_NONBLOCK`); fixed | `c9a3ca0` |
+| 04:36 | 0:35 | **Cross-client e2e passes on one machine**: Codex starts the shared agent through the daemon (lease 1), Claude attaches, reads the backlog and takes control (`controller_changed`, lease 2), the follow-up answers exactly `CROSS_E2E_HANDOFF_OK`, Codex observes the transfer event, takes the lease back (lease 3) and stops with a confirmed teardown | `evidence/v2/cross-client.json` |
 
 ### Honesty, cross-checked
 

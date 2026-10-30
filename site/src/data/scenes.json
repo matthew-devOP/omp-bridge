@@ -204,54 +204,68 @@
     },
     {
       "id": "handoff-v2",
-      "title": "v2: two clients, one agent — control handoff",
-      "source": "evidence/v2/ (cross-client e2e on the daemon)",
-      "pending": true,
+      "title": "v2: two clients, one agent — the real control handoff (M2)",
+      "source": "evidence/v2/cross-client.json · demo/v2/cross-client-transcript.md · phase times real (UTC), per-event spacing reconstructed",
       "events": [
         {
           "t": 0,
           "kind": "call",
-          "text": "codex▸ omp_start (via daemon)  — codex holds the lease"
+          "text": "codex▸ omp_start (via daemon)  session-3 · lease epoch 1   [02:34:20]"
         },
         {
           "t": 700,
-          "kind": "ready",
-          "text": "ready  protocol v2 · shared session"
-        },
-        {
-          "t": 1200,
           "kind": "call",
-          "text": "codex▸ omp_send  long task…"
+          "text": "codex▸ omp_send wait=false  \"count 1..40 … then CROSS_E2E_BASE_DONE\""
         },
         {
-          "t": 1700,
+          "t": 1400,
           "kind": "agent",
-          "text": "agent_start"
+          "text": "agent_start → …counts… → CROSS_E2E_BASE_DONE"
         },
         {
-          "t": 2400,
+          "t": 2200,
           "kind": "msg",
-          "text": "claude▸ omp_events  — attached mid-run, replaying from cursor 0"
+          "text": "claude▸ omp_events cursor=0  — 10-event backlog, dropped 0   [02:34:55]"
         },
         {
-          "t": 3100,
+          "t": 2900,
           "kind": "transfer",
-          "text": "claude▸ omp_take_control  reason=\"operator handoff\""
+          "text": "claude▸ omp_take_control  reason=\"operator handoff: Claude taking over mid-count\""
         },
         {
-          "t": 3400,
+          "t": 3300,
           "kind": "transfer",
-          "text": "controller_changed  codex → claude  leaseEpoch=2  — codex sees it too"
+          "text": "controller_changed  fc6596…→e56dbb…  leaseEpoch=2  (every reader sees it)"
         },
         {
           "t": 4000,
           "kind": "call",
-          "text": "claude▸ omp_follow_up  \"now summarize in one line\""
+          "text": "claude▸ omp_follow_up  \"Reply with exactly CROSS_E2E_HANDOFF_OK\""
         },
         {
-          "t": 5200,
-          "kind": "result",
-          "text": "prompt_result  completed · session_settled"
+          "t": 4900,
+          "kind": "msg",
+          "text": "message_end  role=assistant  \"CROSS_E2E_HANDOFF_OK\"  (exact)"
+        },
+        {
+          "t": 5300,
+          "kind": "settled",
+          "text": "session_settled  — omp_status: sessionSettled=true"
+        },
+        {
+          "t": 6000,
+          "kind": "msg",
+          "text": "codex▸ omp_events  — OBSERVES the controller_changed event   [02:35:50]"
+        },
+        {
+          "t": 6600,
+          "kind": "transfer",
+          "text": "codex▸ omp_take_control  \"resuming to close\" → leaseEpoch=3"
+        },
+        {
+          "t": 7200,
+          "kind": "stop",
+          "text": "codex▸ omp_stop → {\"session\":\"session-3\",\"stopped\":true}  ✓"
         }
       ]
     }
