@@ -40,6 +40,7 @@ struct Session {
     client: Mutex<Option<Arc<Client>>>,
     stopping: AtomicBool,
     busy: AtomicBool,
+    timed_out: AtomicBool,
     disconnected: AtomicBool,
     ring: Arc<EventRing>,
     operations: Mutex<VecDeque<Arc<Operation>>>,
@@ -86,12 +87,18 @@ impl Session {
                 "operationId":op.id,"status":"running_or_unknown"
             }))
         }).collect();
-        json!({"session":self.id,"model":self.model,"cwd":self.cwd,
+        let settled=*lock(&self.settled);
+        let state=if self.stopping.load(Ordering::SeqCst) {"stopping"}
+            else if self.disconnected.load(Ordering::SeqCst) {"unknown"}
+            else if settled==Some(true) {"settled"}
+            else if self.busy.load(Ordering::SeqCst) && !self.timed_out.load(Ordering::SeqCst) {"running"}
+            else {"unknown"};
+        json!({"session":self.id,"model":self.model,"cwd":self.cwd,"status":state,
             "pid":self.pid,"protocolVersion":self.protocol,
             "busy":self.busy.load(Ordering::SeqCst),
             "stopping":self.stopping.load(Ordering::SeqCst),
             "disconnected":self.disconnected.load(Ordering::SeqCst),
-            "sessionSettled":*lock(&self.settled),"operations":operations})
+            "sessionSettled":settled,"operations":operations})
     }
 }
 
@@ -139,7 +146,7 @@ impl Manager {
         let session = Arc::new(Session {
             id:self.id("session"), model, cwd, pid:client.pid(), protocol:client.protocol_version(),
             client:Mutex::new(Some(Arc::new(client))), stopping:AtomicBool::new(false),
-            busy:AtomicBool::new(false), disconnected:AtomicBool::new(false),
+            busy:AtomicBool::new(false), timed_out:AtomicBool::new(false), disconnected:AtomicBool::new(false),
             ring:Arc::new(EventRing::new()), operations:Mutex::new(VecDeque::new()), settled:Mutex::new(None),
         });
         let weak = Arc::downgrade(&session);
@@ -154,6 +161,7 @@ impl Manager {
                 match value.get("type").and_then(Value::as_str) {
                     Some("prompt_result") => {
                         *lock(&session.settled) = value.get("sessionSettled").and_then(Value::as_bool);
+                        if session.timed_out.load(Ordering::SeqCst) { session.busy.store(false,Ordering::SeqCst); }
                     }
                     Some("session_settled") => *lock(&session.settled) = Some(true),
                     Some("agent_start") => *lock(&session.settled) = Some(false),
@@ -181,6 +189,7 @@ impl Manager {
         let client = session.client()?;
         if session.busy.compare_exchange(false,true,Ordering::SeqCst,Ordering::SeqCst).is_err() { bail!("busy"); }
         *lock(&session.settled)=None;
+        session.timed_out.store(false,Ordering::SeqCst);
         let op=Arc::new(Operation {id:self.id("operation"),result:Mutex::new(None),changed:Condvar::new()});
         {
             let mut operations=lock(&session.operations);
@@ -205,6 +214,10 @@ impl Manager {
             // An SDK timeout does not prove the model stopped. Keep the session guarded
             // against another normal prompt until it is explicitly aborted or stopped.
             if value["status"]!="running_or_unknown" { task_session.busy.store(false,Ordering::SeqCst); }
+            else {
+                task_session.timed_out.store(true,Ordering::SeqCst);
+                if *lock(&task_session.settled)==Some(true) {task_session.busy.store(false,Ordering::SeqCst);}
+            }
             *lock(&task_op.result)=Some(value.clone());
             task_op.changed.notify_all();
             task_session.ring.push(json!({"type":"bridge_operation_result","operationId":task_op.id,"outcome":value}));
@@ -243,6 +256,11 @@ impl Manager {
     pub fn abort(&self,args: Value)->Result<Value> {
         let session=self.session(&args)?;
         session.client()?.call(&AbortCommand {}).map_err(|e|anyhow!("abort: {}",rpc_error(&e)))?;
+        if session.timed_out.load(Ordering::SeqCst) {
+            if let Ok(state)=session.client()?.call(&GetStateCommand {}) {
+                if !state.is_streaming && !state.is_compacting {session.busy.store(false,Ordering::SeqCst);}
+            }
+        }
         // Acknowledgement requests cancellation, not proof that the agent settled.
         Ok(json!({"session":session.id,"abortRequested":true,"sessionSettled":*lock(&session.settled)}))
     }
@@ -252,7 +270,10 @@ impl Manager {
         session.stopping.store(true,Ordering::SeqCst);
         let Some(client)=lock(&session.client).take() else { bail!("stop_already_in_progress"); };
         if session.busy.load(Ordering::SeqCst) { let _=client.call(&AbortCommand {}); }
-        let deadline=Instant::now()+Duration::from_secs(5);
+        let started=Instant::now();
+        let deadline=started+Duration::from_secs(5);
+        let mut sent_term=false;
+        let mut sent_kill=false;
         let mut client=client;
         loop {
             match Arc::try_unwrap(client) {
@@ -265,6 +286,20 @@ impl Manager {
                     return Ok(json!({"session":session.id,"stopped":false,"error":"teardown_unconfirmed"}));
                 }
                 Err(shared)=>client=shared,
+            }
+            #[cfg(unix)]
+            if let Some(pid)=session.pid {
+                // Client still owns its unreaped Child here. Its spawn creates a new
+                // process group led by this PID; we never signal an arbitrary caller PID.
+                // Closing pipes wakes outstanding SDK calls so Arc can be unwrapped.
+                if started.elapsed()>=Duration::from_millis(500) && !sent_term {
+                    unsafe {libc::kill(-(pid as i32),libc::SIGTERM);}
+                    sent_term=true;
+                }
+                if started.elapsed()>=Duration::from_millis(1500) && !sent_kill {
+                    unsafe {libc::kill(-(pid as i32),libc::SIGKILL);}
+                    sent_kill=true;
+                }
             }
             if Instant::now()>=deadline {
                 *lock(&session.client)=Some(client);
@@ -319,7 +354,7 @@ mod tests {
         let session=Arc::new(Session {
             id:"test".into(),model:"fake".into(),cwd:PathBuf::from("/tmp"),pid:None,protocol:1,
             client:Mutex::new(Some(Arc::new(client))),stopping:AtomicBool::new(false),
-            busy:AtomicBool::new(false),disconnected:AtomicBool::new(false),
+            busy:AtomicBool::new(false),timed_out:AtomicBool::new(false),disconnected:AtomicBool::new(false),
             ring:Arc::new(EventRing::new()),operations:Mutex::new(VecDeque::new()),settled:Mutex::new(None),
         });
         lock(&manager.inner.sessions).insert("test".into(),session.clone());
@@ -349,5 +384,34 @@ mod tests {
         let (text,truncated)=bounded_text(Some("🦀".repeat(20_000)));
         assert!(truncated);
         assert!(text.unwrap().len()<=64*1024);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_reaps_a_child_even_when_abort_never_settles() {
+        let mut process=Command::new("python3");
+        process.args(["-u","-c",r#"
+import sys,json
+print(json.dumps({'type':'ready'}),flush=True)
+for line in sys.stdin:
+    request=json.loads(line)
+    print(json.dumps({'type':'response','id':request['id'],'command':request['type'],'success':True,'data':{'agentInvoked':True}}),flush=True)
+"#]);
+        let (client,_events)=Client::spawn(process,ClientOptions::default()).unwrap();
+        let pid=client.pid();
+        let session=Arc::new(Session {
+            id:"process-test".into(),model:"fake".into(),cwd:PathBuf::from("/tmp"),pid,protocol:1,
+            client:Mutex::new(Some(Arc::new(client))),stopping:AtomicBool::new(false),
+            busy:AtomicBool::new(false),timed_out:AtomicBool::new(false),disconnected:AtomicBool::new(false),
+            ring:Arc::new(EventRing::new()),operations:Mutex::new(VecDeque::new()),settled:Mutex::new(None),
+        });
+        let manager=Manager::default();
+        lock(&manager.inner.sessions).insert(session.id.clone(),session);
+        manager.send(json!({"session":"process-test","message":"hang","wait":false})).unwrap();
+        let result=manager.stop(json!({"session":"process-test"})).unwrap();
+        assert_eq!(result["stopped"],true);
+        assert_eq!(manager.list()["sessions"],json!([]));
+        // A live process group would return 0; confirmed teardown must have removed it.
+        assert_eq!(unsafe {libc::kill(-(pid.unwrap() as i32),0)},-1);
     }
 }
