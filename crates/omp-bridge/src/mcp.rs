@@ -1,5 +1,5 @@
 use crate::core::Manager;
-use rmcp::{tool, tool_router, handler::server::wrapper::Parameters, model::{CallToolResult, ContentBlock}};
+use rmcp::{tool, tool_router, tool_handler, ServerHandler, handler::server::wrapper::Parameters, model::{CallToolResult, ContentBlock}};
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
@@ -46,7 +46,7 @@ async fn run(f: impl FnOnce() -> anyhow::Result<Value> + Send + 'static) -> Call
         Err(_) => CallToolResult::error(vec![ContentBlock::text("bridge worker failed")]),
     }
 }
-#[tool_router(server_handler)]
+#[tool_router]
 impl Bridge {
     #[tool(description="Start an isolated Oh My Pi RPC v2 session. Each MCP client owns separate sessions.")]
     async fn omp_start(&self, Parameters(p): Parameters<Start>) -> CallToolResult {
@@ -75,5 +75,14 @@ impl Bridge {
     #[tool(description="List sessions owned by this bridge process, not sessions of other MCP clients.")]
     async fn omp_list(&self) -> CallToolResult {
         let m=self.manager.clone(); run(move || Ok(m.list())).await
+    }
+}
+
+#[tool_handler]
+impl ServerHandler for Bridge {
+    fn get_info(&self) -> rmcp::model::ServerConfig {
+        rmcp::model::ServerConfig::new(rmcp::model::ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(rmcp::model::Implementation::new("omp-bridge",env!("CARGO_PKG_VERSION")))
+            .with_instructions("Own process-local Oh My Pi sessions. Start, send a prompt, inspect events/status for settlement, then stop. Timeout never aborts or retries a prompt.")
     }
 }

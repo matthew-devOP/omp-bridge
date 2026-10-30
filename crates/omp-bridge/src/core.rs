@@ -257,7 +257,13 @@ impl Manager {
                     summary["sessionSettled"]=json!(state.is_settled);
                     summary["status"]=json!(if state.is_settled {"settled"} else if state.is_streaming {"running"} else {"unknown"});
                 }
-                summary["state"]=serde_json::to_value(state)?;
+                summary["state"]=json!({
+                    "sessionId":state.session_id,"model":state.model,
+                    "isStreaming":state.is_streaming,"isCompacting":state.is_compacting,
+                    "isSettled":state.is_settled,"hasPendingAsyncWork":state.has_pending_async_work,
+                    "messageCount":state.message_count,"queuedMessageCount":state.queued_message_count,
+                    "sessionFile":state.session_file
+                });
             },
             Err(error)=>{summary["state"]=Value::Null;summary["stateError"]=json!(rpc_error(&error));}
         }
