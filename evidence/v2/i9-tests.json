@@ -1,0 +1,23 @@
+{
+  "timestampUtc": "2026-10-30T02:35:09.600843+00:00",
+  "command": "cargo test --locked",
+  "passed": true,
+  "groupsPassed": [
+    30,
+    3,
+    4,
+    0
+  ],
+  "totalPassed": 37,
+  "coverage": [
+    "RPC mock process",
+    "private MCP",
+    "shared daemon lease transfer",
+    "delayed socket first bytes",
+    "watch JSON and attach interactive input",
+    "settlement race regressions",
+    "bounded ring and wire",
+    "model metadata redaction",
+    "doctor diagnostics"
+  ]
+}
