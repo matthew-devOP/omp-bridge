@@ -196,9 +196,8 @@ impl DaemonState {
         let mut params=request.params;
         if params.is_null() {params=json!({});}
         if !params.is_object() {bail!("invalid_params");}
-        if params.get("session").is_none() {
-            if let Some(id)=params.get("session_id").cloned() {params["session"]=id;}
-        }
+        if params.get("session").is_none()
+            && let Some(id)=params.get("session_id").cloned() {params["session"]=id;}
         let mut control=lock(&self.control);
         self.ensure_open()?;
         if request.method=="hello" {
@@ -287,10 +286,8 @@ impl DaemonState {
                     params["wait"]=json!(false);
                     let result=self.manager.send(params)?;
                     drop(admission);
-                    if wait {
-                        if let Some(id)=result["operationId"].as_str() {
-                            return self.manager.wait_operation(json!({"session":session,"operationId":id,"timeout_ms":timeout}));
-                        }
+                    if wait && let Some(id)=result["operationId"].as_str() {
+                        return self.manager.wait_operation(json!({"session":session,"operationId":id,"timeout_ms":timeout}));
                     }
                     return Ok(result);
                 }
@@ -394,9 +391,8 @@ fn handle_connection(mut stream:UnixStream,state:Arc<DaemonState>)->Result<()> {
 struct SocketGuard {path:PathBuf,device:u64,inode:u64}
 impl Drop for SocketGuard {
     fn drop(&mut self) {
-        if let Ok(meta)=fs::symlink_metadata(&self.path) {
-            if meta.dev()==self.device && meta.ino()==self.inode {let _=fs::remove_file(&self.path);}
-        }
+        if let Ok(meta)=fs::symlink_metadata(&self.path)
+            && meta.dev()==self.device && meta.ino()==self.inode {let _=fs::remove_file(&self.path);}
     }
 }
 
@@ -430,6 +426,9 @@ pub fn serve(socket:Option<PathBuf>,shutdown:Arc<AtomicBool>)->Result<()> {
     while !shutdown.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((mut stream,_))=>{
+                // On BSD/macOS the accepted socket inherits the listener's
+                // non-blocking flag; the request reader expects blocking IO.
+                stream.set_nonblocking(false)?;
                 if active.load(Ordering::SeqCst)>=MAX_CONNECTIONS {
                     let _=write_frame(&mut stream,&json!({"id":null,"ok":false,"error":{"code":"connection_limit","message":"Too many concurrent requests"}}));
                     continue;
