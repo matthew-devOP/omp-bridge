@@ -1,0 +1,4 @@
+[workspace]
+members = ["crates/omp-bridge"]
+exclude = ["vendor/omp-rpc"]
+resolver = "2"

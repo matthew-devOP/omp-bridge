@@ -1,0 +1,8 @@
+/target/
+/.cargo-cache/
+/site/node_modules/
+/site/dist/
+/site/.astro/
+.env
+.env.*
+*.log

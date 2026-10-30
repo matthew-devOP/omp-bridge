@@ -1,0 +1,16 @@
+[package]
+name = "omp-bridge"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Control Oh My Pi agents through MCP or an interactive terminal"
+
+[dependencies]
+omp-rpc = { path = "../../vendor/omp-rpc" }
+rmcp = { version = "=3.8.0", features = ["server", "transport-io", "macros"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
