@@ -1,0 +1,33 @@
+{
+  "test": "cross_client_control_handoff_daemon",
+  "real": true,
+  "machine": "M2",
+  "dateUtc": "2026-10-30",
+  "daemon": { "command": "omp-bridge serve", "socketPermissions": "0600", "version": "0.2.0" },
+  "clients": {
+    "codex": { "client": "Codex CLI 0.162.1", "mcp": "omp_bridge (mcp --daemon)" },
+    "claude": { "client": "Claude Code", "mcp": "omp-daemon (mcp --daemon)" }
+  },
+  "session": "session-3",
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "phases": [
+    { "phase": "A", "actor": "codex", "startUtc": "02:34:20", "endUtc": "02:34:44", "actions": ["omp_start", "omp_send wait=false (count 1..40)", "omp_status"], "leaseEpoch": 1 },
+    { "phase": "B", "actor": "claude", "startUtc": "02:34:55", "endUtc": "02:35:35", "actions": ["omp_events cursor 0 (10-event backlog, dropped 0)", "omp_take_control", "omp_follow_up", "omp_events poll to settle", "omp_status"], "leaseEpoch": 2, "followUpReply": "CROSS_E2E_HANDOFF_OK", "sessionSettled": true },
+    { "phase": "C", "actor": "codex", "startUtc": "02:35:50", "endUtc": "02:36:15", "actions": ["omp_events cursor 0 (observes controller_changed)", "omp_take_control", "omp_stop"], "leaseEpoch": 3, "stopped": true }
+  ],
+  "controllerChangedEvent": {
+    "leaseEpoch": 2,
+    "newClient": "e56dbbca1174f569dc2b3bd0e0b7eac8b5f2f868ed25df17",
+    "previousClient": "fc6596d7bedc85af4eef2fc99f79d7f62c4a7edb1ded56a2",
+    "reason": "operator handoff: Claude taking over mid-count",
+    "timestampMs": 1793327711272,
+    "type": "controller_changed"
+  },
+  "observedByBothClients": true,
+  "leaseEpochProgression": [1, 2, 3],
+  "promptsSent": 2,
+  "assistantReplies": ["CROSS_E2E_BASE_DONE (end of 1..40 count)", "CROSS_E2E_HANDOFF_OK (exact)"],
+  "teardown": { "session": "session-3", "stopped": true },
+  "notes": "Phase boundaries are wall-clock (UTC, second precision). The controller_changed JSON is verbatim as both clients reported it. A first rehearsal run (session-1) completed the same B steps but stopped the session before Codex could observe the transfer; session-3 is the complete choreography. Client ids are daemon-issued random identifiers, not personal data.",
+  "transcript": "demo/v2/cross-client-transcript.md"
+}

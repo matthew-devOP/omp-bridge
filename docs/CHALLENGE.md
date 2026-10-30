@@ -116,3 +116,53 @@ decision was steered.
   substitute.
 - Check toolchain minimums early: Node 22.13 on i9 was too old for Astro 7, so the page was
   built on M2.
+
+## v2 — one more hour (started 04:01)
+
+v1 hit a minimal bar in 27 minutes. The owner measured it and raised the bar explicitly:
+real agentic control depth, and a presentation that holds up on a projector. Same team,
+same rules (no human steering after START), one more timed hour.
+
+**The v2 criterion, in short:**
+
+- `omp_steer` / `omp_follow_up` while a turn runs, on omp's native queues;
+- a shared-session daemon (`omp-bridge serve`, private Unix socket) with an explicit
+  **controller lease**: one writer at a time, visible `controller_changed` events, no
+  silent takeover;
+- `omp-bridge watch` / `attach` for humans, `doctor` for diagnostics;
+- more harness controls over MCP (`set_model`, `compact`, `messages`,
+  `promote_queued_message`), a mock-omp integration test, GitHub Actions CI
+  (`cargo test` + `clippy -D warnings`);
+- the Astro page rebuilt as a product page with honest, evidence-backed content;
+- a cross-client e2e on one machine: Codex CLI starts an agent through the daemon,
+  Claude Code attaches, reads the backlog, takes control with a reason, sends a
+  follow-up — and the Codex side sees the transfer.
+
+### v2 timeline (EET, UTC+2; times are commit timestamps)
+
+| Clock | Elapsed | Milestone | Ref |
+|---|---|---|---|
+| **04:01** | 0:00 | **START v2** — the raised bar lands on both sides | — |
+| 04:02 | 0:01 | Daemon contract fixed between the two sides; CI workflow added | `c956e46` |
+| 04:08 | 0:07 | Product page: animated architecture, real-event replay, tool explorer | `074523a` |
+| 04:08 | 0:07 | `watch` / `attach` socket clients (Claude side) | `04a590a` |
+| 04:12 | 0:11 | `watch` adapted to the final daemon wire | `53c70bc` |
+| 04:13 | 0:12 | Shared Unix daemon with controller leases + interactive controls (Codex side) | `28e8b79` |
+| 04:15 | 0:14 | **Live mid-turn steer proven**, with a real timed replay | `1d5414f` |
+| 04:16 | 0:15 | Use-case animations + SaaS vision section on the page | `acab576`, `9f141f2` |
+| 04:22 | 0:21 | Shared sessions kept responsive under load; `doctor` added | `926aa8c` |
+| 04:23 | 0:22 | Cross-review honesty + accessibility fixes land on the page | `2a0d0f6` |
+| 04:25 | 0:24 | Daemon merged on `main` | `8349b27` |
+| 04:28 | 0:27 | Flaky test caught a real macOS accept bug (inherited `O_NONBLOCK`); fixed | `c9a3ca0` |
+| 04:36 | 0:35 | **Cross-client e2e passes on one machine**: Codex starts the shared agent through the daemon (lease 1), Claude attaches, reads the backlog and takes control (`controller_changed`, lease 2), the follow-up answers exactly `CROSS_E2E_HANDOFF_OK`, Codex observes the transfer event, takes the lease back (lease 3) and stops with a confirmed teardown | `evidence/v2/cross-client.json` |
+
+### Honesty, cross-checked
+
+Both sides reviewed each other during the hour, on quality as well as correctness. The
+Codex side's review of the page forced three fixes that are visible in the result: replay
+timings labeled **reconstructed** where the evidence has no per-event timestamps, the tool
+explorer rebuilt from the actual `tools/list` capture with real-vs-illustrative response
+labels, and contrast/mobile/reduced-motion accessibility repairs. The Claude side's review
+of the daemon found the serverInfo identity and an oversized `omp_status` payload in v1,
+both fixed in the v2 core — and, during the v2 merge, a flaky daemon test that turned out
+to be a real macOS bug rather than test noise.
