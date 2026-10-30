@@ -9,6 +9,7 @@ events, abort a turn, and shut it down. Sessions run isolated by default
 so the bridge drives a clean, reproducible agent.
 
 > Status: built during a one-hour timed challenge (2026-10-30). Expect MVP scope.
+> The task, the team and the end-to-end timeline are in [docs/CHALLENGE.md](docs/CHALLENGE.md) (tag `v1`).
 
 ## Why
 
