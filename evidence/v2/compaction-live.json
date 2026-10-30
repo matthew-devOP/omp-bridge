@@ -1,0 +1,75 @@
+{
+  "test": "live_mcp_compaction_with_test_overlay",
+  "real": true,
+  "passed": true,
+  "timestampUtc": "2026-10-30T02:28:14.610143+00:00",
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "testOnlyOverlay": {
+    "compaction": {
+      "keepRecentTokens": 0,
+      "methodOrder": [
+        "soft"
+      ]
+    }
+  },
+  "overlayScope": "temporary --config file passed only to the spawned omp process",
+  "defaultRetentionUnchanged": true,
+  "promptsSent": 2,
+  "compactCalls": 1,
+  "examples": [
+    {
+      "tool": "omp_compact",
+      "call": {
+        "session": "session-1",
+        "instructions": "Summarize only the demo project facts in one short paragraph. Preserve BLUE_ORBIT and local-only."
+      },
+      "response": {
+        "admission": "pending",
+        "operationId": "operation-4",
+        "session": "session-1",
+        "status": "running_or_unknown"
+      }
+    },
+    {
+      "tool": "omp_status",
+      "call": {
+        "session": "session-1"
+      },
+      "response": {
+        "session": "session-1",
+        "busy": false,
+        "sessionSettled": true,
+        "operations": [
+          {
+            "operationId": "operation-4",
+            "status": "finished",
+            "compaction": {
+              "firstKeptEntryId": "30c9dd03",
+              "tokensBefore": 11101
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "historyBeforeCount": 4,
+  "operationStatus": "finished",
+  "compactionSucceeded": true,
+  "outcome": {
+    "operationId": "operation-4",
+    "status": "finished",
+    "compaction": {
+      "firstKeptEntryId": "30c9dd03",
+      "tokensBefore": 11101
+    }
+  },
+  "summaryCharacters": 1105,
+  "summaryPreservesProjectCode": true,
+  "summaryPreservesLocalOnly": true,
+  "historyAfterCount": 2,
+  "compactionSummaryInHistory": true,
+  "bridgeExitCode": 0,
+  "stopped": true,
+  "durationMs": 20764,
+  "temporaryOverlayRemoved": true
+}

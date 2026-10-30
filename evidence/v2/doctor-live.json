@@ -1,0 +1,32 @@
+{
+  "authentication": {
+    "model": "opencode-go/deepseek-v4.1-flash",
+    "provider": "opencode-go",
+    "status": "verified_by_inference"
+  },
+  "cleanupConfirmed": true,
+  "daemon": {
+    "requiredForPrivateMode": false,
+    "status": "absent"
+  },
+  "executable": {
+    "name": "lab-omp",
+    "status": "ok"
+  },
+  "inferenceVerified": true,
+  "liveRequested": true,
+  "privateModeReady": true,
+  "promptsSent": 1,
+  "rpc": {
+    "observedModel": {
+      "id": "deepseek-v4.1-flash",
+      "provider": "opencode-go"
+    },
+    "protocolVersion": 2,
+    "requestedModel": "opencode-go/deepseek-v4.1-flash",
+    "stateRead": true,
+    "status": "ok"
+  },
+  "sharedModeReady": false,
+  "version": "0.2.0"
+}

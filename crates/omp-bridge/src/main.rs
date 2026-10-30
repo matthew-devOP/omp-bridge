@@ -35,7 +35,7 @@ enum Mode {
         session: String,
         #[arg(long)] socket: Option<String>,
     },
-    /// Check omp, OpenCode auth, protocol v2 and the daemon socket. --live sends nothing to a model.
+    /// Check omp, RPC v2 and the daemon socket. --live sends one minimal inference to verify access.
     Doctor {
         #[arg(long)] socket: Option<PathBuf>,
         #[arg(long)] live: bool,

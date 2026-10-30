@@ -1,0 +1,351 @@
+{
+  "test": "live_mcp_harness_controls",
+  "real": true,
+  "passed": false,
+  "timestampUtc": "2026-10-30T02:23:15.096742+00:00",
+  "promptsSent": 1,
+  "compactCalls": 1,
+  "examples": [
+    {
+      "tool": "omp_set_model",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "model_id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session",
+          "provider",
+          "model_id"
+        ],
+        "type": "object"
+      },
+      "call": {
+        "session": "session-1",
+        "provider": "opencode-go",
+        "model_id": "deepseek-v4-pro"
+      },
+      "response": {
+        "session": "session-1",
+        "model": {
+          "provider": "opencode-go",
+          "id": "deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro (New)"
+        }
+      }
+    },
+    {
+      "tool": "omp_messages",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "cursor": {
+            "description": "Stable page cursor returned by the previous call.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Bounded page size, maximum 100.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "description": "Legacy offset for starting without a cursor.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      },
+      "call": {
+        "session": "session-1",
+        "limit": 1
+      },
+      "response": {
+        "session": "session-1",
+        "messages": [
+          {
+            "role": "user",
+            "text": "A4_CONTROL_OK"
+          }
+        ],
+        "totalMessages": 2,
+        "nextCursor": "eyJ2ZXJzaW9uIjoxLCJzZXNzaW9uSWQiOiIwMWExOGE5ZS02OGRkLTcxNWYtOTZhNS1jMDBkMDFhNGY4MzAiLCJsZWFmSWQiOiJjNzk0MjRiMiIsIm1lc3NhZ2VDb3VudCI6Miwib2Zmc2V0IjoxfQ"
+      }
+    },
+    {
+      "tool": "omp_messages",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "cursor": {
+            "description": "Stable page cursor returned by the previous call.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "Bounded page size, maximum 100.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "offset": {
+            "description": "Legacy offset for starting without a cursor.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      },
+      "call": {
+        "session": "session-1",
+        "limit": 1,
+        "cursor": "eyJ2ZXJzaW9uIjoxLCJzZXNzaW9uSWQiOiIwMWExOGE5ZS02OGRkLTcxNWYtOTZhNS1jMDBkMDFhNGY4MzAiLCJsZWFmSWQiOiJjNzk0MjRiMiIsIm1lc3NhZ2VDb3VudCI6Miwib2Zmc2V0IjoxfQ"
+      },
+      "response": {
+        "session": "session-1",
+        "messages": [
+          {
+            "role": "assistant",
+            "text": "A4_CONTROL_OK"
+          }
+        ],
+        "totalMessages": 2,
+        "nextCursor": null
+      }
+    },
+    {
+      "tool": "omp_compact",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "instructions": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      },
+      "call": {
+        "session": "session-1",
+        "instructions": "Keep only the A4_CONTROL_OK marker."
+      },
+      "response": {
+        "admission": "pending",
+        "operationId": "operation-3",
+        "session": "session-1",
+        "status": "running_or_unknown"
+      }
+    },
+    {
+      "tool": "omp_status",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "session": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "type": "object"
+      },
+      "call": {
+        "session": "session-1"
+      },
+      "response": {
+        "session": "session-1",
+        "busy": false,
+        "sessionSettled": true,
+        "operations": [
+          {
+            "operationId": "operation-3",
+            "status": "failed",
+            "error": "command_rejected",
+            "retrySafe": false
+          }
+        ]
+      }
+    }
+  ],
+  "catalogSource": "RPC get_available_models",
+  "availableOpenCodeGoModels": [
+    {
+      "provider": "opencode-go",
+      "id": "beam-free"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "claude-haiku-5-5"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "deepseek-v4-pro"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "deepseek-v4.1-flash"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "glm-5.2"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "glm-5.3"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "glm-5.3-flash"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "gpt-5.6-luna"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "gpt-6-luna"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "grok-4.7"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "hy3"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "hy4-preview"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "kimi-k2.7-code"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "kimi-k3"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "longcat-2.0"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "mimo-v2.6-flash"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "mimo-v2.6-pro"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "minimax-m3"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "muse-spark-1.2-contributor"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "muse-spark-1.3-contributor"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "qwen3.7-plus"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "qwen3.8-flash"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "qwen3.8-max"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "step-5-preview"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "gemini-4-argon"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "iceman-contributor-free"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "kimi-k3.1-pro"
+    },
+    {
+      "provider": "opencode-go",
+      "id": "minimax-m3.1-flash"
+    }
+  ],
+  "modelSwitched": true,
+  "alternativeInferencePassed": true,
+  "paginatedHistoryPassed": true,
+  "compactionOperationObserved": true,
+  "compactionStatus": "failed",
+  "compactionSucceeded": false,
+  "compactionOutcome": {
+    "operationId": "operation-3",
+    "status": "failed",
+    "error": "command_rejected",
+    "retrySafe": false
+  },
+  "compactionLimitation": "One-turn history may be too small to compact; the bridge exposed the actual asynchronous failure without pretending success.",
+  "bridgeExitCode": 0,
+  "stopped": true,
+  "durationMs": 9200,
+  "validationStatus": "partial: model switch and paginated history passed; compaction rejected"
+}
