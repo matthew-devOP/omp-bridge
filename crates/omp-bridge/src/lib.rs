@@ -4,3 +4,4 @@ pub mod ring;
 pub mod daemon;
 pub mod backend;
 pub mod mcp;
+pub mod doctor;

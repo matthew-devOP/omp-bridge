@@ -7,7 +7,6 @@ Replay timestamps are measured observer arrival times, not invented model times.
 import argparse
 import datetime
 import json
-import os
 from pathlib import Path
 import tempfile
 import time
@@ -163,7 +162,8 @@ def run(binary, evidence_path, replay_path):
                             changedDirection='STEERED_BLUE' in observed_texts,
                             baselineSuppressed='BASELINE_RED' not in observed_texts,
                             followUpCompleted='FOLLOW_UP_GREEN' in observed_texts,
-                            sessionSettled=settled, queueUpdateObserved='queue_update' in seen,
+                            sessionSettled=settled, sessionSettledSource='omp_status.state.isSettled',
+                            queueUpdateObserved='queue_update' in seen,
                             eventKinds=sorted(seen))
             if not all(evidence[k] for k in ('toolStartedBeforeSteer', 'steeringAdmitted',
                 'followUpAdmitted', 'changedDirection', 'baselineSuppressed',

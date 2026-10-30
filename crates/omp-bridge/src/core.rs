@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, VecDeque},
     path::PathBuf,
     process::{Command, Stdio},
-    sync::{Arc, Condvar, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}},
+    sync::{Arc, Condvar, Mutex, atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering}},
     thread,
     time::{Duration, Instant},
 };
@@ -31,6 +31,13 @@ pub struct Manager {
 struct Inner {
     sessions: Mutex<BTreeMap<String, Arc<Session>>>,
     counter: AtomicU64,
+    starting: AtomicUsize,
+    shutting_down: AtomicBool,
+}
+
+struct StartupReservation(Arc<Inner>);
+impl Drop for StartupReservation {
+    fn drop(&mut self) {self.0.starting.fetch_sub(1,Ordering::SeqCst);}
 }
 
 struct Session {
@@ -79,6 +86,16 @@ fn rpc_error(error: &omp_rpc::Error) -> &'static str {
 }
 
 impl Session {
+    fn call_mutation<C:omp_rpc::Command>(&self,client:&Client,command:&C)->std::result::Result<C::Output,omp_rpc::Error> {
+        // Invalidate snapshots both before admission begins and after it finishes.
+        // A status request can itself start while this RPC is in flight; its result
+        // must not certify settlement after this command has queued new work.
+        let _admission=lock(&self.admission);
+        self.generation.fetch_add(1,Ordering::SeqCst);
+        let result=client.call(command);
+        self.generation.fetch_add(1,Ordering::SeqCst);
+        result
+    }
     fn record_event(&self, value: Value) {
         // Receiver delivery can lag behind prompt_and_wait and even the next send.
         // Events are historical evidence, never authoritative current-session state.
@@ -138,9 +155,19 @@ impl Manager {
             .current_dir(&cwd).stderr(Stdio::null());
         if args.get("no_tools").and_then(Value::as_bool).unwrap_or(false) { process.arg("--no-tools"); }
 
-        // Holding the registry lock during spawn prevents racing past the session cap.
-        let mut sessions = lock(&self.inner.sessions);
-        if sessions.len() >= MAX_SESSIONS { bail!("session_limit (4); stop a session first"); }
+        self.start_process(process,model,cwd)
+    }
+
+    fn start_process(&self,process:Command,model:String,cwd:PathBuf)->Result<Value> {
+        // Reserve capacity briefly, then perform the potentially slow handshake
+        // without blocking reads/control of already-running sessions.
+        let reservation={
+            let sessions=lock(&self.inner.sessions);
+            if self.inner.shutting_down.load(Ordering::SeqCst) {bail!("manager_shutting_down");}
+            if sessions.len()+self.inner.starting.load(Ordering::SeqCst)>=MAX_SESSIONS {bail!("session_limit (4); stop a session first");}
+            self.inner.starting.fetch_add(1,Ordering::SeqCst);
+            StartupReservation(self.inner.clone())
+        };
         let (client, receiver) = Client::spawn(process, ClientOptions {
             default_timeout: Duration::from_secs(5), ..ClientOptions::default()
         }).map_err(|e| anyhow!("omp_start: {}",rpc_error(&e)))?;
@@ -174,7 +201,16 @@ impl Manager {
             }
         });
         let result = session.summary();
+        let mut sessions=lock(&self.inner.sessions);
+        if self.inner.shutting_down.load(Ordering::SeqCst) {
+            drop(sessions);
+            // No work can yet have borrowed this client. Dropping the unregistered
+            // session invokes Client cleanup and reaps its owned process group.
+            drop(session);
+            bail!("manager_shutting_down");
+        }
         sessions.insert(session.id.clone(),session);
+        drop(reservation);
         Ok(result)
     }
 
@@ -189,7 +225,7 @@ impl Manager {
         if let Some(behavior)=streaming_behavior(&args)? {
             // This is ONE prompt RPC with explicit busy-session admission behavior.
             // Never retry it as steer/follow_up after timeout or unsupported protocol.
-            let ack=client.call(&PromptCommand {message,images:None,streaming_behavior:Some(behavior)})
+            let ack=session.call_mutation(&client,&PromptCommand {message,images:None,streaming_behavior:Some(behavior)})
                 .map_err(|e|anyhow!("queued_prompt: {}; admission_unknown; retrySafe=false",rpc_error(&e)))?;
             return Ok(json!({"session":session.id,"admitted":true,"agentInvoked":ack.agent_invoked,
                 "queue":behavior.as_str(),"status":"admitted","waitIgnored":true}));
@@ -259,7 +295,7 @@ impl Manager {
     pub fn steer(&self,args:Value)->Result<Value> {
         let session=self.session(&args)?;
         let message=control_text(&args)?;
-        session.client()?.call(&SteerCommand {message,images:None})
+        session.call_mutation(session.client()?.as_ref(),&SteerCommand {message,images:None})
             .map_err(|e|anyhow!("steer: {}; admission_unknown; retrySafe=false",rpc_error(&e)))?;
         Ok(json!({"session":session.id,"admitted":true,"queue":"steering"}))
     }
@@ -267,7 +303,7 @@ impl Manager {
     pub fn follow_up(&self,args:Value)->Result<Value> {
         let session=self.session(&args)?;
         let message=control_text(&args)?;
-        session.client()?.call(&FollowUpCommand {message,images:None})
+        session.call_mutation(session.client()?.as_ref(),&FollowUpCommand {message,images:None})
             .map_err(|e|anyhow!("follow_up: {}; admission_unknown; retrySafe=false",rpc_error(&e)))?;
         Ok(json!({"session":session.id,"admitted":true,"queue":"followUp"}))
     }
@@ -275,7 +311,7 @@ impl Manager {
     pub fn promote_queued_message(&self,args:Value)->Result<Value> {
         let session=self.session(&args)?;
         let message=control_text(&args)?;
-        let result=session.client()?.call(&PromoteQueuedMessageCommand {message})
+        let result=session.call_mutation(session.client()?.as_ref(),&PromoteQueuedMessageCommand {message})
             .map_err(|e|anyhow!("promote_queued_message: {}; no_fallback_attempted",rpc_error(&e)))?;
         Ok(json!({"session":session.id,"promoted":result.promoted}))
     }
@@ -285,7 +321,7 @@ impl Manager {
         let provider=required(&args,"provider")?.to_owned();
         let model_id=required(&args,"model_id")?.to_owned();
         if provider.len()>256 || model_id.len()>512 {bail!("invalid_model");}
-        let model=session.client()?.call(&SetModelCommand{provider:provider.clone(),model_id:model_id.clone()})
+        let model=session.call_mutation(session.client()?.as_ref(),&SetModelCommand{provider:provider.clone(),model_id:model_id.clone()})
             .map_err(|e|anyhow!("set_model: {}",rpc_error(&e)))?;
         *lock(&session.model)=format!("{provider}/{model_id}");
         Ok(json!({"session":session.id,"model":model}))
@@ -372,17 +408,18 @@ impl Manager {
                     session.busy.store(false,Ordering::SeqCst);
                 }
                 summary=session.summary();
-                if same_generation && !session.busy.load(Ordering::SeqCst) {
+                if same_generation && !session.busy.load(Ordering::SeqCst) && !session.stopping.load(Ordering::SeqCst) {
                     summary["sessionSettled"]=json!(state.is_settled);
                     summary["status"]=json!(if state.is_settled {"settled"} else if state.is_streaming {"running"} else {"unknown"});
                 }
-                summary["state"]=json!({
+                summary["stateSnapshotCurrent"]=json!(same_generation);
+                summary["state"]=if same_generation {json!({
                     "sessionId":state.session_id,"model":state.model,
                     "isStreaming":state.is_streaming,"isCompacting":state.is_compacting,
                     "isSettled":state.is_settled,"hasPendingAsyncWork":state.has_pending_async_work,
                     "messageCount":state.message_count,"queuedMessageCount":state.queued_message_count,
                     "sessionFile":state.session_file
-                });
+                })} else {Value::Null};
             },
             Err(error)=>{summary["state"]=Value::Null;summary["stateError"]=json!(rpc_error(&error));}
         }
@@ -391,7 +428,7 @@ impl Manager {
 
     pub fn abort(&self,args: Value)->Result<Value> {
         let session=self.session(&args)?;
-        session.client()?.call(&AbortCommand {}).map_err(|e|anyhow!("abort: {}",rpc_error(&e)))?;
+        session.call_mutation(session.client()?.as_ref(),&AbortCommand {}).map_err(|e|anyhow!("abort: {}",rpc_error(&e)))?;
         // Acknowledgement requests cancellation, not proof that the agent settled.
         let state=self.status(args).unwrap_or_else(|_|session.summary());
         Ok(json!({"session":session.id,"abortRequested":true,"sessionSettled":state["sessionSettled"]}))
@@ -446,6 +483,7 @@ impl Manager {
     }
 
     pub fn shutdown(&self) {
+        self.inner.shutting_down.store(true,Ordering::SeqCst);
         let ids:Vec<String>=lock(&self.inner.sessions).keys().cloned().collect();
         for session in ids { let _=self.stop(json!({"session":session})); }
     }
@@ -621,6 +659,81 @@ mod tests {
         let result=manager.wait_operation(json!({"session":"test","operationId":admitted["operationId"],"timeout_ms":1000})).unwrap();
         assert_eq!(result["compaction"]["tokensBefore"],123);assert_eq!(result["status"],"finished");
         server.join().unwrap();manager.shutdown();
+    }
+
+
+    #[test]
+    fn status_snapshot_overlapping_steer_never_claims_settled() {
+        // Cover snapshots begun both before and during mutation admission.
+        for status_first in [true,false] {
+            let (manager,mut writer,mut reader)=fake_manager();
+            let (started_tx,started_rx)=std::sync::mpsc::channel();
+            let server=thread::spawn(move || {
+                let first=read_request(&mut reader);
+                assert_eq!(first["type"],if status_first {"get_state"} else {"steer"});
+                started_tx.send(()).unwrap();
+                let second=read_request(&mut reader);
+                let (status,steer)=if status_first {(first,second)}else{(second,first)};
+                assert_eq!(status["type"],"get_state");assert_eq!(steer["type"],"steer");
+                if status_first {
+                    reply(&mut writer,&steer,json!({}));
+                    reply(&mut writer,&status,json!({"sessionId":"fake","isSettled":true}));
+                } else {
+                    reply(&mut writer,&status,json!({"sessionId":"fake","isSettled":true}));
+                    thread::sleep(Duration::from_millis(20));
+                    reply(&mut writer,&steer,json!({}));
+                }
+            });
+            let first_manager=manager.clone();
+            let first=thread::spawn(move || if status_first {
+                first_manager.status(json!({"session":"test"}))
+            } else {first_manager.steer(json!({"session":"test","text":"new direction"}))});
+            started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            let second=if status_first {
+                manager.steer(json!({"session":"test","text":"new direction"})).unwrap()
+            }else {manager.status(json!({"session":"test"})).unwrap()};
+            let first=first.join().unwrap().unwrap();
+            let status=if status_first {first}else{second};
+            assert_eq!(status["stateSnapshotCurrent"],false);
+            assert!(status["sessionSettled"].is_null());
+            assert!(status["state"].is_null());
+            server.join().unwrap();manager.shutdown();
+        }
+    }
+
+    #[test]
+    fn slow_start_does_not_hold_registry_and_shutdown_rejects_pending_start() {
+        let (manager,mut writer,mut reader)=fake_manager();
+        let server=thread::spawn(move || {
+            let status=read_request(&mut reader);assert_eq!(status["type"],"get_state");
+            reply(&mut writer,&status,json!({"sessionId":"fake","isSettled":true}));
+        });
+        let starter=manager.clone();
+        let task=thread::spawn(move || {
+            let mut process=Command::new("python3");
+            process.args(["-u","-c",r#"
+import sys,json,time
+time.sleep(0.5)
+print(json.dumps({'type':'ready'}),flush=True)
+for line in sys.stdin:
+    r=json.loads(line)
+    print(json.dumps({'type':'response','id':r['id'],'command':r['type'],'success':True,'data':{'events':r.get('events')}}),flush=True)
+"#]);
+            starter.start_process(process,"fake".into(),PathBuf::from("/tmp"))
+        });
+        let deadline=Instant::now()+Duration::from_secs(2);
+        while manager.inner.starting.load(Ordering::SeqCst)==0 {
+            assert!(Instant::now()<deadline);thread::yield_now();
+        }
+        let before=Instant::now();
+        assert_eq!(manager.list()["sessions"].as_array().unwrap().len(),1);
+        assert_eq!(manager.status(json!({"session":"test"})).unwrap()["sessionSettled"],true);
+        assert!(before.elapsed()<Duration::from_millis(200),"list/status blocked on an unrelated startup");
+        server.join().unwrap();
+        manager.shutdown();
+        assert!(task.join().unwrap().unwrap_err().to_string().contains("manager_shutting_down"));
+        assert_eq!(manager.inner.starting.load(Ordering::SeqCst),0);
+        assert_eq!(manager.list()["sessions"],json!([]));
     }
 
     #[test]

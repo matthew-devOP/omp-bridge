@@ -46,5 +46,7 @@
   ],
   "stopped": true,
   "bridgeExitCode": 0,
-  "durationMs": 18718
+  "durationMs": 18718,
+  "sessionSettledSource": "omp_status.state.isSettled",
+  "yieldVsSettlementNote": "The first prompt_result reported sessionSettled=false; final authoritative status settled after background delivery. One follow-up RPC was sent."
 }

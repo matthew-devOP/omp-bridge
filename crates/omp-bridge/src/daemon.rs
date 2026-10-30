@@ -8,11 +8,11 @@ use std::{
     collections::BTreeMap,
     fs::{self, File},
     io::{BufRead, BufReader, Read, Write},
-    os::unix::{fs::{DirBuilderExt, MetadataExt, PermissionsExt}, net::{UnixListener, UnixStream}},
+    os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::{DirBuilderExt, MetadataExt, PermissionsExt}, net::{UnixListener, UnixStream}}},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering}},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const MAX_FRAME: usize = 1024 * 1024;
@@ -49,11 +49,17 @@ struct Request {
 }
 
 #[derive(Clone)]
-pub struct DaemonClient {
-    socket: PathBuf,
-    client_id: Arc<str>,
+pub struct DaemonClient { identity:Arc<ClientIdentity> }
+struct ClientIdentity { socket:PathBuf, client_id:String }
+impl Drop for ClientIdentity {
+    fn drop(&mut self) {
+        // Best effort, bounded cleanup. A crashed or disconnected controller never
+        // destroys sessions or silently transfers its lease to another client.
+        let deadline=Instant::now()+Duration::from_millis(180);
+        let request=Request{id:next_request_id(),client_id:Some(self.client_id.clone()),method:"goodbye".into(),params:json!({})};
+        let _=exchange_before(&self.socket,&request,deadline);
+    }
 }
-
 impl DaemonClient {
     pub fn connect(socket: Option<PathBuf>, name: &str) -> Result<Self> {
         let socket = socket.unwrap_or_else(default_socket);
@@ -61,18 +67,18 @@ impl DaemonClient {
             id: next_request_id(), client_id: None, method: "hello".into(),
             params: json!({"name":name}),
         })?;
-        let client_id = response["client_id"].as_str().ok_or_else(|| anyhow!("invalid_daemon_hello"))?;
-        Ok(Self { socket, client_id: Arc::from(client_id) })
+        let client_id = response["client_id"].as_str().ok_or_else(|| anyhow!("invalid_daemon_hello"))?.to_owned();
+        Ok(Self {identity:Arc::new(ClientIdentity {socket,client_id})})
     }
 
     pub fn call(&self, method: &str, params: Value) -> Result<Value> {
-        exchange(&self.socket, &Request {
-            id:next_request_id(), client_id:Some(self.client_id.to_string()), method:method.into(), params,
+        exchange(&self.identity.socket, &Request {
+            id:next_request_id(), client_id:Some(self.identity.client_id.clone()), method:method.into(), params,
         })
     }
 
-    pub fn client_id(&self) -> &str { &self.client_id }
-    pub fn socket(&self) -> &Path { &self.socket }
+    pub fn client_id(&self) -> &str { &self.identity.client_id }
+    pub fn socket(&self) -> &Path { &self.identity.socket }
 }
 
 fn next_request_id() -> String {
@@ -80,18 +86,56 @@ fn next_request_id() -> String {
 }
 
 fn exchange(socket: &Path, request: &Request) -> Result<Value> {
-    let mut stream = UnixStream::connect(socket).context("daemon_unavailable")?;
-    stream.set_read_timeout(Some(Duration::from_secs(75)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-    write_frame(&mut stream, &serde_json::to_value(request)?)?;
-    let response = read_frame(&mut BufReader::new(stream))?;
+    exchange_before(socket,request,Instant::now()+Duration::from_secs(75))
+}
+
+fn exchange_before(socket:&Path,request:&Request,deadline:Instant)->Result<Value> {
+    let mut stream=connect_before(socket,deadline).context("daemon_unavailable")?;
+    stream.set_write_timeout(Some(remaining(deadline)?.min(Duration::from_secs(5))))?;
+    write_frame(&mut stream,&serde_json::to_value(request)?)?;
+    stream.set_read_timeout(Some(remaining(deadline)?))?;
+    let response=read_frame(&mut BufReader::new(stream))?;
     if response.get("id").and_then(Value::as_str) != Some(&request.id) { bail!("daemon_response_id_mismatch"); }
-    if response["ok"] == true {
-        return Ok(response.get("result").cloned().unwrap_or(Value::Null));
-    }
+    if response["ok"] == true {return Ok(response.get("result").cloned().unwrap_or(Value::Null));}
     let code=response["error"]["code"].as_str().unwrap_or("daemon_error");
     let message=response["error"]["message"].as_str().unwrap_or("request failed");
     bail!("{code}: {message}")
+}
+
+fn remaining(deadline:Instant)->Result<Duration> {
+    deadline.checked_duration_since(Instant::now()).filter(|v|!v.is_zero()).ok_or_else(||anyhow!("daemon_timeout"))
+}
+
+fn connect_before(path:&Path,deadline:Instant)->Result<UnixStream> {
+    let mut address:libc::sockaddr_un=unsafe {std::mem::zeroed()};
+    let path=path.as_os_str().as_bytes();
+    if path.len()>=address.sun_path.len() || path.contains(&0) {bail!("invalid_socket_path");}
+    address.sun_family=libc::AF_UNIX as libc::sa_family_t;
+    for (destination,source) in address.sun_path.iter_mut().zip(path) {*destination=*source as libc::c_char;}
+    let length=(std::mem::offset_of!(libc::sockaddr_un,sun_path)+path.len()+1) as libc::socklen_t;
+    #[cfg(any(target_os="macos",target_os="ios",target_os="freebsd"))]
+    {address.sun_len=length as u8;}
+    let fd=unsafe {libc::socket(libc::AF_UNIX,libc::SOCK_STREAM,0)};
+    if fd<0 {return Err(std::io::Error::last_os_error().into());}
+    let stream=unsafe {UnixStream::from_raw_fd(fd)};
+    if unsafe {libc::fcntl(fd,libc::F_SETFD,libc::FD_CLOEXEC)}<0 {return Err(std::io::Error::last_os_error().into());}
+    stream.set_nonblocking(true)?;
+    let result=unsafe {libc::connect(fd,&address as *const _ as *const libc::sockaddr,length)};
+    if result<0 {
+        let error=std::io::Error::last_os_error();
+        if !matches!(error.raw_os_error(),Some(libc::EINPROGRESS)|Some(libc::EAGAIN)) {return Err(error.into());}
+        let mut event=libc::pollfd{fd,events:libc::POLLOUT,revents:0};
+        let timeout=remaining(deadline)?.as_millis().max(1).min(i32::MAX as u128) as i32;
+        if unsafe {libc::poll(&mut event,1,timeout)}<=0 {bail!("daemon_connect_timeout");}
+        let mut error_code:libc::c_int=0;
+        let mut error_len=std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+        if unsafe {libc::getsockopt(fd,libc::SOL_SOCKET,libc::SO_ERROR,&mut error_code as *mut _ as *mut libc::c_void,&mut error_len)}<0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        if error_code!=0 {return Err(std::io::Error::from_raw_os_error(error_code).into());}
+    }
+    stream.set_nonblocking(false)?;
+    Ok(stream)
 }
 
 fn read_frame(reader: &mut impl BufRead) -> Result<Value> {
@@ -122,56 +166,66 @@ struct Lease {
     epoch:u64,
 }
 
+struct SessionControl { admission:Mutex<()>, lease:Mutex<Lease> }
 #[derive(Default)]
 struct Control {
     clients:BTreeMap<String,String>,
-    leases:BTreeMap<String,Lease>,
-    closing:bool,
+    leases:BTreeMap<String,Arc<SessionControl>>,
 }
 
 struct DaemonState {
     manager:Manager,
     control:Mutex<Control>,
+    closing:AtomicBool,
 }
 
 impl DaemonState {
-    fn new()->Self { Self {manager:Manager::default(),control:Mutex::new(Control::default())} }
+    fn new()->Self {Self {manager:Manager::default(),control:Mutex::new(Control::default()),closing:AtomicBool::new(false)}}
+
+    fn session_control(&self,session:&str)->Result<Arc<SessionControl>> {
+        lock(&self.control).leases.get(session).cloned().ok_or_else(||anyhow!("unknown_session"))
+    }
+
+    fn ensure_open(&self)->Result<()> {
+        if self.closing.load(Ordering::SeqCst) {bail!("daemon_shutting_down");}
+        Ok(())
+    }
 
     fn dispatch(&self, request:Request)->Result<Value> {
-        if request.id.len()>128 || request.method.len()>128 { bail!("invalid_request"); }
+        if request.id.len()>128 || request.method.len()>128 {bail!("invalid_request");}
         let mut params=request.params;
-        if params.is_null() { params=json!({}); }
-        if !params.is_object() { bail!("invalid_params"); }
+        if params.is_null() {params=json!({});}
+        if !params.is_object() {bail!("invalid_params");}
         if params.get("session").is_none() {
-            if let Some(id)=params.get("session_id").cloned() { params["session"]=id; }
+            if let Some(id)=params.get("session_id").cloned() {params["session"]=id;}
         }
         let mut control=lock(&self.control);
-        if control.closing { bail!("daemon_shutting_down"); }
+        self.ensure_open()?;
         if request.method=="hello" {
-            if control.clients.len()>=MAX_CLIENTS { bail!("client_limit"); }
+            if control.clients.len()>=MAX_CLIENTS {bail!("client_limit");}
             let name=params["name"].as_str().unwrap_or("client");
-            if name.is_empty() || name.len()>64 || name.chars().any(char::is_control) { bail!("invalid_client_name"); }
+            if name.is_empty() || name.len()>64 || name.chars().any(char::is_control) {bail!("invalid_client_name");}
             let client_id=random_id()?;
             control.clients.insert(client_id.clone(),name.into());
             return Ok(json!({"client_id":client_id,"name":name,"protocolVersion":1,"version":env!("CARGO_PKG_VERSION")}));
         }
         let client_id=request.client_id.ok_or_else(||anyhow!("unknown_client"))?;
         let client_name=control.clients.get(&client_id).cloned().ok_or_else(||anyhow!("unknown_client"))?;
+        if request.method=="goodbye" {
+            control.clients.remove(&client_id);
+            return Ok(json!({"disconnected":true,"sessionsPreserved":true}));
+        }
+        drop(control); // No RPC, handshake, event wait or teardown holds the registry.
         match request.method.as_str() {
             "ping"=>Ok(json!({"protocolVersion":1,"version":env!("CARGO_PKG_VERSION"),"scope":"shared_daemon"})),
-            "goodbye"=>{
-                control.clients.remove(&client_id);
-                // Sessions survive their controller process. A new client must
-                // explicitly take control; disconnect never grants a silent lease.
-                Ok(json!({"disconnected":true,"sessionsPreserved":true}))
-            },
             "omp_list"=>{
                 let mut result=self.manager.list();
                 result["scope"]=json!("shared_daemon");
+                let leases=lock(&self.control).leases.clone();
                 if let Some(sessions)=result["sessions"].as_array_mut() {
                     for session in sessions {
                         let id=session["session"].as_str().unwrap_or("");
-                        let lease=control.leases.get(id).map(|l|json!(l)).unwrap_or(Value::Null);
+                        let lease=leases.get(id).map(|entry|json!(*lock(&entry.lease))).unwrap_or(Value::Null);
                         session["controller"]=lease;
                     }
                 }
@@ -181,7 +235,14 @@ impl DaemonState {
                 let mut result=self.manager.start(params)?;
                 let session=result["session"].as_str().ok_or_else(||anyhow!("start_missing_session"))?.to_owned();
                 let lease=Lease {client_id:client_id.clone(),client_name,epoch:1};
-                control.leases.insert(session.clone(),lease.clone());
+                let mut control=lock(&self.control);
+                if self.closing.load(Ordering::SeqCst) {
+                    drop(control);
+                    let _=self.manager.stop(json!({"session":session}));
+                    bail!("daemon_shutting_down");
+                }
+                control.leases.insert(session.clone(),Arc::new(SessionControl{admission:Mutex::new(()),lease:Mutex::new(lease.clone())}));
+                drop(control);
                 self.manager.emit_event(&session,json!({"type":"controller_changed","previousClient":Value::Null,
                     "newClient":client_id,"reason":"session_started","leaseEpoch":1,"timestampMs":timestamp_ms()}))?;
                 result["controller"]=json!(lease);
@@ -190,39 +251,42 @@ impl DaemonState {
             "omp_take_control"=>{
                 let session=session_id(&params)?;
                 let reason=params["reason"].as_str().map(str::trim).filter(|s|!s.is_empty()).ok_or_else(||anyhow!("reason_required"))?;
-                if reason.len()>1024 { bail!("reason_too_long"); }
-                let previous=control.leases.get(session).cloned().ok_or_else(||anyhow!("unknown_session"))?;
-                if previous.client_id==client_id {
-                    return Ok(json!({"session":session,"controller":previous,"changed":false}));
-                }
-                let lease=Lease {client_id:client_id.clone(),client_name,epoch:previous.epoch+1};
+                if reason.len()>1024 {bail!("reason_too_long");}
+                let entry=self.session_control(session)?;
+                let _admission=lock(&entry.admission);
+                self.ensure_open()?;
+                let previous=lock(&entry.lease).clone();
+                if previous.client_id==client_id {return Ok(json!({"session":session,"controller":previous,"changed":false}));}
+                let lease=Lease{client_id:client_id.clone(),client_name,epoch:previous.epoch+1};
                 self.manager.emit_event(session,json!({"type":"controller_changed","previousClient":previous.client_id,
                     "newClient":client_id,"reason":reason,"leaseEpoch":lease.epoch,"timestampMs":timestamp_ms()}))?;
-                control.leases.insert(session.into(),lease.clone());
+                *lock(&entry.lease)=lease.clone();
                 Ok(json!({"session":session,"controller":lease,"changed":true}))
             }
             "omp_status"|"omp_events"|"omp_messages"=>{
                 let session=session_id(&params)?.to_owned();
-                let lease=control.leases.get(&session).cloned();
-                drop(control);
                 let mut result=match request.method.as_str() {
                     "omp_status"=>self.manager.status(params)?,
                     "omp_events"=>bounded_events(self.manager.events(params)?),
                     _=>self.manager.messages(params)?,
                 };
-                if request.method=="omp_status" {result["controller"]=lease.map(|v|json!(v)).unwrap_or(Value::Null);}
+                if request.method=="omp_status" {
+                    result["controller"]=self.session_control(&session).ok().map(|entry|json!(*lock(&entry.lease))).unwrap_or(Value::Null);
+                }
                 Ok(result)
             }
             "omp_send"|"omp_steer"|"omp_follow_up"|"omp_promote_queued_message"|"omp_set_model"|"omp_compact"|"omp_abort"|"omp_stop"=>{
                 let session=session_id(&params)?.to_owned();
-                let lease=control.leases.get(&session).ok_or_else(||anyhow!("unknown_session"))?;
-                if lease.client_id!=client_id {bail!("not_controller");}
+                let entry=self.session_control(&session)?;
+                let admission=lock(&entry.admission);
+                self.ensure_open()?;
+                if lock(&entry.lease).client_id!=client_id {bail!("not_controller");}
                 if request.method=="omp_send" {
                     let wait=params["wait"].as_bool().unwrap_or(true);
                     let timeout=params.get("timeout_ms").cloned().unwrap_or(json!(25000));
                     params["wait"]=json!(false);
                     let result=self.manager.send(params)?;
-                    drop(control);
+                    drop(admission);
                     if wait {
                         if let Some(id)=result["operationId"].as_str() {
                             return self.manager.wait_operation(json!({"session":session,"operationId":id,"timeout_ms":timeout}));
@@ -242,7 +306,7 @@ impl DaemonState {
                         self.manager.stop(params)
                     },
                 }?;
-                if request.method=="omp_stop" && result["stopped"]==true {control.leases.remove(&session);}
+                if request.method=="omp_stop" && result["stopped"]==true {lock(&self.control).leases.remove(&session);}
                 Ok(result)
             }
             _=>Err(anyhow!("unknown_method")),
@@ -378,11 +442,14 @@ pub fn serve(socket:Option<PathBuf>,shutdown:Arc<AtomicBool>)->Result<()> {
                     if workers[i].is_finished() {let _=workers.swap_remove(i).join();} else {i+=1;}
                 }
             },
-            Err(error) if error.kind()==std::io::ErrorKind::WouldBlock=>thread::sleep(Duration::from_millis(20)),
+            Err(error) if error.kind()==std::io::ErrorKind::WouldBlock=>{
+                let mut ready=libc::pollfd{fd:listener.as_raw_fd(),events:libc::POLLIN,revents:0};
+                unsafe {libc::poll(&mut ready,1,20);}
+            },
             Err(error)=>{accept_error=Some(error);break;}
         }
     }
-    lock(&state.control).closing=true;
+    state.closing.store(true,Ordering::SeqCst);
     drop(listener);
     state.manager.shutdown();
     for worker in workers {let _=worker.join();}
@@ -450,6 +517,51 @@ mod tests {
         server.join().unwrap().unwrap();
         assert!(!socket.exists());
         fs::remove_dir(dir).unwrap();
+    }
+    #[test]
+    fn last_client_drop_releases_registration_after_clone_lifetime() {
+        let dir=PathBuf::from("/tmp").join(format!("omp-drop-{}",&random_id().unwrap()[..12]));
+        let socket=dir.join("bridge.sock");
+        let shutdown=Arc::new(AtomicBool::new(false));
+        let worker_shutdown=shutdown.clone();let worker_socket=socket.clone();
+        let server=thread::spawn(move ||serve(Some(worker_socket),worker_shutdown));
+        let deadline=Instant::now()+Duration::from_secs(5);
+        while !socket.exists() && Instant::now()<deadline {thread::sleep(Duration::from_millis(5));}
+        for _ in 0..MAX_CLIENTS+20 {
+            let client=DaemonClient::connect(Some(socket.clone()),"temporary").unwrap();
+            let copy=client.clone();
+            drop(client);
+            assert_eq!(copy.call("ping",json!({})).unwrap()["protocolVersion"],1);
+            drop(copy); // Last clone sends goodbye, preventing cap exhaustion.
+        }
+        shutdown.store(true,Ordering::SeqCst);server.join().unwrap().unwrap();
+        fs::remove_dir(dir).unwrap();
+    }
+    #[test]
+    fn client_drop_has_a_short_deadline_when_daemon_does_not_reply() {
+        let dir=PathBuf::from("/tmp").join(format!("omp-drop-{}",&random_id().unwrap()[..12]));
+        fs::create_dir(&dir).unwrap();let socket=dir.join("bridge.sock");
+        let listener=UnixListener::bind(&socket).unwrap();
+        let server=thread::spawn(move || {let (_stream,_)=listener.accept().unwrap();thread::sleep(Duration::from_millis(400));});
+        let client=DaemonClient{identity:Arc::new(ClientIdentity{socket:socket.clone(),client_id:"test-client".into()})};
+        let start=Instant::now();drop(client);
+        assert!(start.elapsed()<Duration::from_millis(300));
+        server.join().unwrap();fs::remove_file(socket).unwrap();fs::remove_dir(dir).unwrap();
+    }
+    #[test]
+    fn unrelated_client_reads_do_not_wait_for_a_session_admission_lock() {
+        let state=Arc::new(DaemonState::new());
+        let hello=state.dispatch(Request{id:"hello".into(),client_id:None,method:"hello".into(),params:json!({})}).unwrap();
+        let client=hello["client_id"].as_str().unwrap().to_owned();
+        let session=Arc::new(SessionControl{admission:Mutex::new(()),lease:Mutex::new(Lease{client_id:client.clone(),client_name:"test".into(),epoch:1})});
+        lock(&state.control).leases.insert("slow-session".into(),session.clone());
+        let (tx,rx)=std::sync::mpsc::channel();
+        let worker=thread::spawn(move || {let _guard=lock(&session.admission);tx.send(()).unwrap();thread::sleep(Duration::from_millis(250));});
+        rx.recv().unwrap();
+        let start=Instant::now();
+        assert!(state.dispatch(Request{id:"list".into(),client_id:Some(client),method:"omp_list".into(),params:json!({})}).is_ok());
+        assert!(start.elapsed()<Duration::from_millis(150));
+        worker.join().unwrap();
     }
     #[test]
     fn existing_symlink_is_never_removed() {
