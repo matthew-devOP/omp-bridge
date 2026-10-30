@@ -227,3 +227,102 @@ fn two_mcp_clients_share_a_daemon_with_explicit_control_transfer() {
     assert_eq!(second.tool("omp_stop", json!({"session":session}))["stopped"], true);
     assert!(first.tool("omp_list", json!({}))["sessions"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn daemon_waits_for_delayed_first_bytes_after_accept() {
+    use std::os::unix::net::UnixStream;
+
+    let temp = Temp::new();
+    let socket = temp.0.join("delayed.sock");
+    let mut daemon = Process(bridge(&["serve", "--socket", socket.to_str().unwrap()], &temp));
+    let until = Instant::now() + Duration::from_secs(5);
+    while !socket.exists() {
+        assert!(daemon.0.try_wait().unwrap().is_none(), "daemon exited before binding");
+        assert!(Instant::now() < until, "daemon socket deadline");
+        thread::sleep(Duration::from_millis(10));
+    }
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    stream.set_write_timeout(Some(Duration::from_secs(2))).unwrap();
+    // macOS can inherit O_NONBLOCK on accept. The daemon must switch accepted
+    // sockets to blocking before reading, not mistake WouldBlock for EOF.
+    thread::sleep(Duration::from_millis(60));
+    writeln!(stream, "{}", json!({"id":"delayed-hello","method":"hello","params":{"name":"delayed-client"}})).unwrap();
+    stream.flush().unwrap();
+    let mut response = String::new();
+    let count = BufReader::new(stream).read_line(&mut response).unwrap();
+    assert!(count > 0, "daemon closed the connection before request bytes arrived");
+    let response: Value = serde_json::from_str(&response).unwrap();
+    assert_eq!(response["id"], "delayed-hello");
+    assert_eq!(response["ok"], true, "{response}");
+    assert!(response["result"]["client_id"].as_str().is_some_and(|s| !s.is_empty()));
+    assert!(daemon.0.try_wait().unwrap().is_none());
+}
+
+#[test]
+fn watch_json_observes_attach_transfer_and_one_follow_up() {
+    let temp = Temp::new();
+    let socket = temp.0.join("human.sock");
+    let mut daemon = Process(bridge(&["serve", "--socket", socket.to_str().unwrap()], &temp));
+    let until = Instant::now() + Duration::from_secs(5);
+    while !socket.exists() {
+        assert!(daemon.0.try_wait().unwrap().is_none(), "daemon exited before binding");
+        assert!(Instant::now() < until, "daemon socket deadline");
+        thread::sleep(Duration::from_millis(10));
+    }
+    let mut owner = Mcp::new(&["mcp", "--daemon", "--socket", socket.to_str().unwrap()], &temp);
+    let started = owner.tool("omp_start", json!({"cwd":temp.0,"no_tools":true,"model":"mock-provider/mock-model"}));
+    let session = started["session"].as_str().unwrap();
+
+    let mut watcher = Process(bridge(&["watch", session, "--json", "--socket", socket.to_str().unwrap()], &temp));
+    let watch_output = watcher.0.stdout.take().unwrap();
+    let (watch_tx, watch_rx) = mpsc::channel();
+    thread::spawn(move || {
+        for line in BufReader::new(watch_output).lines() {
+            let Ok(line) = line else { break };
+            if watch_tx.send(line).is_err() { break; }
+        }
+    });
+
+    let mut attach = Process(bridge(&["attach", session, "--socket", socket.to_str().unwrap()], &temp));
+    let mut input = attach.0.stdin.take().unwrap();
+    input.write_all(b"!take\n>attached follow-up exactly once\n/quit\n").unwrap();
+    input.flush().unwrap();
+    drop(input);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(status) = attach.0.try_wait().unwrap() {
+            assert!(status.success(), "attach must leave cleanly after /quit");
+            break;
+        }
+        assert!(Instant::now() < deadline, "attach /quit exceeded deadline");
+        thread::sleep(Duration::from_millis(10));
+    }
+    let output = BufReader::new(attach.0.stdout.take().unwrap()).lines().collect::<Result<Vec<_>, _>>().unwrap().join("\n");
+    assert!(output.contains("take_control: accepted"), "{output}");
+    assert!(output.contains("omp_follow_up: accepted"), "{output}");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let transfer = loop {
+        let line = watch_rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("watch --json must stream the actual transfer event");
+        let envelope: Value = serde_json::from_str(&line).expect("--json must emit JSONL, not terminal colors");
+        if envelope["event"]["type"] == "controller_changed" && envelope["event"]["reason"] == "operator attach" {
+            break envelope;
+        }
+    };
+    assert!(transfer["cursor"].as_u64().is_some(), "watch must preserve replay cursor");
+    if transfer.get("session").is_some() { assert_eq!(transfer["session"], session); }
+    assert_ne!(transfer["event"]["previousClient"], transfer["event"]["newClient"]);
+    let rejected = owner.raw_tool("omp_steer", json!({"session":session,"text":"old controller cannot write"}));
+    assert_eq!(rejected["isError"], true);
+    let events = owner.settle(session);
+    assert!(events.iter().any(|event| event["type"] == "message_end" && event["message"]["role"] == "assistant"
+        && event.to_string().contains("attached follow-up exactly once")));
+    let log = commands(&temp);
+    assert_eq!(log.iter().filter(|frame| frame["type"] == "follow_up").count(), 1, "attach must not resend");
+    assert_eq!(log.iter().filter(|frame| frame["type"] == "steer").count(), 0, "denied write and follow-up must not fall back to steer");
+    drop(watcher);
+    owner.tool("omp_take_control", json!({"session":session,"reason":"test cleanup"}));
+    assert_eq!(owner.tool("omp_stop", json!({"session":session}))["stopped"], true);
+}

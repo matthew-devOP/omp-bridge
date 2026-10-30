@@ -87,12 +87,16 @@ fn rpc_error(error: &omp_rpc::Error) -> &'static str {
 
 impl Session {
     fn call_mutation<C:omp_rpc::Command>(&self,client:&Client,command:&C)->std::result::Result<C::Output,omp_rpc::Error> {
+        self.call_mutation_then(client,command,|_|{})
+    }
+    fn call_mutation_then<C:omp_rpc::Command,F:FnOnce(&C::Output)>(&self,client:&Client,command:&C,applied:F)->std::result::Result<C::Output,omp_rpc::Error> {
         // Invalidate snapshots both before admission begins and after it finishes.
         // A status request can itself start while this RPC is in flight; its result
         // must not certify settlement after this command has queued new work.
         let _admission=lock(&self.admission);
         self.generation.fetch_add(1,Ordering::SeqCst);
         let result=client.call(command);
+        if let Ok(value)=&result {applied(value);}
         self.generation.fetch_add(1,Ordering::SeqCst);
         result
     }
@@ -321,10 +325,10 @@ impl Manager {
         let provider=required(&args,"provider")?.to_owned();
         let model_id=required(&args,"model_id")?.to_owned();
         if provider.len()>256 || model_id.len()>512 {bail!("invalid_model");}
-        let model=session.call_mutation(session.client()?.as_ref(),&SetModelCommand{provider:provider.clone(),model_id:model_id.clone()})
-            .map_err(|e|anyhow!("set_model: {}",rpc_error(&e)))?;
-        *lock(&session.model)=format!("{provider}/{model_id}");
-        Ok(json!({"session":session.id,"model":model}))
+        let model=session.call_mutation_then(session.client()?.as_ref(),&SetModelCommand{provider,model_id},|model| {
+            *lock(&session.model)=format!("{}/{}",model.provider,model.id);
+        }).map_err(|e|anyhow!("set_model: {}",rpc_error(&e)))?;
+        Ok(json!({"session":session.id,"model":public_model(&model)}))
     }
 
     /// Compaction is a long-running operation. It never holds the daemon lease lock
@@ -414,7 +418,7 @@ impl Manager {
                 }
                 summary["stateSnapshotCurrent"]=json!(same_generation);
                 summary["state"]=if same_generation {json!({
-                    "sessionId":state.session_id,"model":state.model,
+                    "sessionId":state.session_id,"model":state.model.as_ref().map(public_model),
                     "isStreaming":state.is_streaming,"isCompacting":state.is_compacting,
                     "isSettled":state.is_settled,"hasPendingAsyncWork":state.has_pending_async_work,
                     "messageCount":state.message_count,"queuedMessageCount":state.queued_message_count,
@@ -489,6 +493,13 @@ impl Manager {
     }
 }
 
+
+fn public_model(model:&omp_rpc::ModelInfo)->Value {
+    // ModelInfo also carries provider headers/compat/base URL configuration.
+    // Public control responses expose identity and capabilities only.
+    json!({"id":model.id,"provider":model.provider,"name":model.name,"api":model.api,
+        "reasoning":model.reasoning,"contextWindow":model.context_window,"maxTokens":model.max_tokens})
+}
 
 fn session_id(args:&Value)->Result<&str> {
     args.get("session").or_else(||args.get("session_id")).and_then(Value::as_str)
@@ -734,6 +745,42 @@ for line in sys.stdin:
         assert!(task.join().unwrap().unwrap_err().to_string().contains("manager_shutting_down"));
         assert_eq!(manager.inner.starting.load(Ordering::SeqCst),0);
         assert_eq!(manager.list()["sessions"],json!([]));
+    }
+
+
+    #[test]
+    fn model_cache_update_stays_in_rpc_admission_order() {
+        let (manager,mut writer,mut reader)=fake_manager();
+        let session=manager.session(&json!({"session":"test"})).unwrap();
+        let model_guard=lock(&session.model);
+        let (first_tx,first_rx)=std::sync::mpsc::channel();
+        let (second_tx,second_rx)=std::sync::mpsc::channel();
+        let server=thread::spawn(move || {
+            let response=|id:&str|json!({"id":id,"name":id,"api":"test","provider":"test","baseUrl":"https://example.invalid","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":1000,"maxTokens":100,"headers":{"Authorization":"not-a-real-secret"}});
+            let a=read_request(&mut reader);assert_eq!(a["modelId"],"a");
+            reply(&mut writer,&a,response("a"));first_tx.send(()).unwrap();
+            let b=read_request(&mut reader);assert_eq!(b["modelId"],"b");
+            second_tx.send(()).unwrap();reply(&mut writer,&b,response("b"));
+            let status=read_request(&mut reader);assert_eq!(status["type"],"get_state");
+            reply(&mut writer,&status,json!({"sessionId":"test","isSettled":true,"model":response("b")}));
+        });
+        let ma=manager.clone();let a=thread::spawn(move ||ma.set_model(json!({"session":"test","provider":"test","model_id":"a"})).unwrap());
+        first_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let mb=manager.clone();let b=thread::spawn(move ||mb.set_model(json!({"session":"test","provider":"test","model_id":"b"})).unwrap());
+        // A has received its RPC result but cannot update the cache while we hold
+        // its lock. B must not enter RPC before A's cached state is committed.
+        assert!(second_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        drop(model_guard);
+        let ar=a.join().unwrap();let br=b.join().unwrap();
+        assert!(ar["model"].get("headers").is_none());assert!(ar["model"].get("baseUrl").is_none());
+        assert_eq!(br["model"]["id"],"b");
+        assert_eq!(*lock(&session.model),"test/b");
+        let status=manager.status(json!({"session":"test"})).unwrap();
+        assert_eq!(status["state"]["model"]["id"],"b");
+        assert!(!status.to_string().contains("not-a-real-secret"));
+        assert!(!ar.to_string().contains("not-a-real-secret"));
+        assert!(status["state"]["model"].get("headers").is_none());
+        server.join().unwrap();manager.shutdown();
     }
 
     #[test]
