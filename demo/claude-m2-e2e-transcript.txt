@@ -1,0 +1,11 @@
+End-to-end check passed: the bridge started a DeepSeek session, got back exactly `BRIDGE_E2E_OK`, settled cleanly, and tore down with confirmation.
+
+Tool-by-tool:
+
+1. **`omp_start`** (model `opencode-go/deepseek-v4.1-flash`) → `session-1`, pid 8205, protocol v2, not busy.
+2. **`omp_send`** (the prompt, wait=true) → `operation-2`, status `finished`, `sessionSettled: true`, assistant text: **`BRIDGE_E2E_OK`** (exact, not truncated).
+3. **`omp_events`** (cursor 0) → 9 events, no drops, no gap: `ready` → `agent_start` → user/assistant `message_end` → `agent_end` → `bridge_operation_result` → `prompt_result` (completed, settled) → **`session_settled`** at cursor 8. The assistant message confirms the same text, stop reason `stop`, ~2.6 s latency, 8 output tokens.
+4. **`omp_status`** → `busy: false`, `sessionSettled: true`, `stopping: false`, one operation (`operation-2`, finished). (The raw response was oversized because it embeds the full commands catalog; I extracted the state fields with jq.)
+5. **`omp_stop`** → `{"stopped": true}` — confirmed process teardown.
+
+Final status before teardown: settled, idle, no pending operations. Everything behaved per the bridge's contract.

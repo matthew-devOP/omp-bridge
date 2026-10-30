@@ -75,7 +75,14 @@ args = ["mcp"]
 
 ## Demo
 
-_(added at the end of the challenge: transcript / GIF)_
+End-to-end from Claude Code on macOS (M2), 2026-10-30 — full transcript in
+[`demo/claude-m2-e2e-transcript.txt`](demo/claude-m2-e2e-transcript.txt):
+
+1. `omp_start` (model `opencode-go/deepseek-v4.1-flash`) → `session-1`, protocol v2
+2. `omp_send` (prompt, wait) → status `finished`, `sessionSettled: true`, assistant text exactly `BRIDGE_E2E_OK`
+3. `omp_events` (cursor 0) → 9 events, no drops: `ready` → `agent_start` → `message_end` → `agent_end` → `prompt_result` → `session_settled`
+4. `omp_status` → idle, settled, no pending operations
+5. `omp_stop` → `{"stopped": true}` — confirmed process teardown
 
 ## License
 
