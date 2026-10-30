@@ -390,6 +390,10 @@ const timeline = [
 				<h2>Measured, not marketed</h2>
 				<p class="lead">Every figure below is reproducible from the repository and the committed evidence files.</p>
 				<div class="stats" id="stats"></div>
+				<p class="lead" style="margin-top:0.9rem; font-size:0.85rem">
+					Measured at commit <code>c9a3ca0</code> — reproduce with <code>wc -l crates/omp-bridge/src/*.rs</code>,
+					<code>cargo test</code>, and the committed <code>evidence/</code> files.
+				</p>
 			</section>
 
 			<!-- ================= REPLAY ================= -->
@@ -572,10 +576,21 @@ omp_stop   → {"stopped":true} only when proven</pre>
 					))}
 				</ul>
 				<p class="lead" style="margin-top:1rem">
-					<strong>v2</strong> (same rules, one more hour): mid-turn <code>steer</code> / <code>follow_up</code>,
-					a shared-session daemon with a control lease, human <code>watch</code>/<code>attach</code>,
-					more harness controls, a mock-omp integration test and CI.
+					<strong>v2</strong> (same rules, one more hour, started 04:01): mid-turn
+					<code>steer</code> / <code>follow_up</code>, a shared-session daemon with a control
+					lease, human <code>watch</code>/<code>attach</code>, <code>doctor</code>, a mock-omp
+					integration test and CI. Milestones below are commit timestamps.
 				</p>
+				<ul class="tl">
+					<li><span class="at">0:00</span><span class="what">START v2 — raised bar: depth and presentation</span></li>
+					<li><span class="at">0:01</span><span class="what">Daemon contract fixed between the two sides; CI added</span><span class="sha">c956e46</span></li>
+					<li><span class="at">0:07</span><span class="what">Product page: animated architecture, real-event replay, tool explorer</span><span class="sha">074523a</span></li>
+					<li><span class="at">0:12</span><span class="what">Shared Unix daemon with controller leases + interactive controls (Codex side)</span><span class="sha">28e8b79</span></li>
+					<li><span class="at">0:14</span><span class="what">Live mid-turn steer proven, with a real timed replay</span><span class="sha">1d5414f</span></li>
+					<li><span class="at">0:22</span><span class="what">Cross-review honesty + accessibility fixes land on the page</span><span class="sha">2a0d0f6</span></li>
+					<li><span class="at">0:24</span><span class="what">Daemon merged on main — 34 tests green</span><span class="sha">8349b27</span></li>
+					<li><span class="at">0:27</span><span class="what">Flaky test caught a real macOS accept bug; fixed, not silenced</span><span class="sha">c9a3ca0</span></li>
+				</ul>
 			</section>
 
 			<!-- ================= REGISTER ================= -->
@@ -622,11 +637,11 @@ env = { OMP_BRIDGE_CMD = "/path/to/omp" }</pre>
 			const statsBox = $("#stats");
 			const meta = readJson("stats-data") || { v1Tools: 7, v2Tools: 6 };
 			const STATS = [
-				{ n: "1,9k<em>+</em>", l: "lines of our Rust (v2) over 10.8k vendored RPC client — we built the bridge, not the wheel" },
+				{ n: "2,5k", l: "lines of our Rust (2,473) over 10,848 vendored RPC-client lines — we built the bridge, not the wheel" },
 				{ n: String(meta.v1Tools + meta.v2Tools), l: `MCP tools (${meta.v1Tools} shipped in v1, ${meta.v2Tools} added in v2)` },
 				{ n: "2", l: "clients proven end-to-end: Codex CLI and Claude Code, live model runs" },
 				{ n: "~2.6s", l: "model turn latency measured in the Claude e2e (8 output tokens)" },
-				{ n: "0", l: "events dropped in every committed run — and drops would be explicit" },
+				{ n: "34", l: "tests passing (29 unit + 5 binary/integration), clippy -D warnings in CI" },
 				{ n: "27min", l: "from START to audited v1 tag, out of 60 allowed" },
 			];
 			if (statsBox) {
@@ -644,7 +659,7 @@ env = { OMP_BRIDGE_CMD = "/path/to/omp" }</pre>
 			function buildTerms() {
 				if (!terms) return;
 				terms.innerHTML = scenes.map((sc, i) => `
-					<div class="term ${i === 2 ? "wide" : ""}">
+					<div class="term ${sc.id && sc.id.endsWith("-v2") ? "wide" : ""}">
 						<div class="term-bar"><span class="dots"><i></i><i></i><i></i></span><span>${sc.title}</span></div>
 						<div class="term-body" id="tb-${sc.id}" aria-live="off">${
 							sc.events.map((e) => `<span class="ln ${KINDMAP[e.kind] || "k-msg"}" data-t="${e.t}">${e.text.replace(/</g,"&lt;")}</span>`).join("")
