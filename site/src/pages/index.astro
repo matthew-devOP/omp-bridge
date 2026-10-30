@@ -269,6 +269,23 @@ const timeline = [
 			}
 			.copy:hover { color: var(--blue); border-color: var(--blue); }
 
+			/* ---------- vision ---------- */
+			.vision-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+			.vcard {
+				background: linear-gradient(180deg, var(--panel2), var(--panel));
+				border: 1px solid var(--border);
+				border-radius: 12px;
+				padding: 1.2rem 1.4rem;
+			}
+			.vcard h3 { margin: 0 0 0.5rem; font-size: 1.05rem; color: var(--blue); }
+			.vcard p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+			.vision-tag {
+				margin: 1.6rem 0 0;
+				font: 700 1.15rem/1.4 var(--mono);
+				color: var(--cyan);
+				text-align: center;
+			}
+
 			/* ---------- use cases ---------- */
 			.uc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
 			.uc { margin: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
@@ -285,7 +302,7 @@ const timeline = [
 			}
 
 			@media (max-width: 900px) {
-				.term-grid, .explorer, .ba, .reg-grid, .uc-grid { grid-template-columns: 1fr; }
+				.term-grid, .explorer, .ba, .reg-grid, .uc-grid, .vision-grid { grid-template-columns: 1fr; }
 				.hero { padding-top: 3rem; }
 				main { padding: 0 1.1rem 4rem; }
 			}
@@ -481,6 +498,43 @@ omp_stop   → {"stopped":true} only when proven</pre>
 						</ul>
 					</div>
 				</div>
+			</section>
+
+			<!-- ================= SAAS VISION ================= -->
+			<section id="vision">
+				<div class="kicker">where this goes</div>
+				<h2>Warp — agentic workers as a service</h2>
+				<p class="lead">
+					The bridge is real and demonstrated; this is the product it unlocks. Today's demo —
+					two AI clients sharing one controlled agent — is the control plane of a service:
+					fleets of long-running agents on cheap models, driven by whatever AI client a team
+					already uses.
+				</p>
+				<div class="vision-grid">
+					<div class="vcard">
+						<h3>Workers on tap</h3>
+						<p>A pool of omp sessions on low-cost models (OpenCode Go and friends), started and
+						stopped per task over the same MCP surface shown above. Your expensive model
+						delegates; the fleet executes.</p>
+					</div>
+					<div class="vcard">
+						<h3>The lease is a shift handover</h3>
+						<p>A human takes over from an agent — or the night agent hands off to the morning
+						operator — with <code>omp_take_control</code>: explicit, reasoned, visible to every
+						observer. No silent takeovers, by design.</p>
+					</div>
+					<div class="vcard">
+						<h3>The event stream is the audit trail</h3>
+						<p>Every turn, tool call and controller change lands on a cursor-addressed stream
+						with explicit gaps. Compliance isn't an add-on — it's the transport.</p>
+					</div>
+					<div class="vcard">
+						<h3>Bring your own harness</h3>
+						<p>omp today; the bridge pattern — spawn, lease, events, honest teardown — ports to
+						any agent runtime that speaks a structured protocol. The open-source core stays MIT.</p>
+					</div>
+				</div>
+				<p class="vision-tag">The bridge is real. The service is next.</p>
 			</section>
 
 			<!-- ================= TIMELINE ================= -->
