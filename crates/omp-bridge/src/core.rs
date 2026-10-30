@@ -41,10 +41,11 @@ struct Session {
     stopping: AtomicBool,
     busy: AtomicBool,
     timed_out: AtomicBool,
+    generation: AtomicU64,
+    admission: Mutex<()>,
     disconnected: AtomicBool,
     ring: Arc<EventRing>,
     operations: Mutex<VecDeque<Arc<Operation>>>,
-    settled: Mutex<Option<bool>>,
 }
 
 struct Operation {
@@ -76,6 +77,11 @@ fn rpc_error(error: &omp_rpc::Error) -> &'static str {
 }
 
 impl Session {
+    fn record_event(&self, value: Value) {
+        // Receiver delivery can lag behind prompt_and_wait and even the next send.
+        // Events are historical evidence, never authoritative current-session state.
+        self.ring.push(value);
+    }
     fn client(&self) -> Result<Arc<Client>> {
         if self.stopping.load(Ordering::SeqCst) { bail!("session_stopping"); }
         lock(&self.client).clone().ok_or_else(|| anyhow!("session_closed"))
@@ -87,18 +93,17 @@ impl Session {
                 "operationId":op.id,"status":"running_or_unknown"
             }))
         }).collect();
-        let settled=*lock(&self.settled);
+        let busy=self.busy.load(Ordering::SeqCst);
         let state=if self.stopping.load(Ordering::SeqCst) {"stopping"}
             else if self.disconnected.load(Ordering::SeqCst) {"unknown"}
-            else if settled==Some(true) {"settled"}
-            else if self.busy.load(Ordering::SeqCst) && !self.timed_out.load(Ordering::SeqCst) {"running"}
+            else if busy && !self.timed_out.load(Ordering::SeqCst) {"running"}
             else {"unknown"};
         json!({"session":self.id,"model":self.model,"cwd":self.cwd,"status":state,
             "pid":self.pid,"protocolVersion":self.protocol,
-            "busy":self.busy.load(Ordering::SeqCst),
+            "busy":busy,
             "stopping":self.stopping.load(Ordering::SeqCst),
             "disconnected":self.disconnected.load(Ordering::SeqCst),
-            "sessionSettled":settled,"operations":operations})
+            "sessionSettled":Value::Null,"operations":operations})
     }
 }
 
@@ -146,8 +151,8 @@ impl Manager {
         let session = Arc::new(Session {
             id:self.id("session"), model, cwd, pid:client.pid(), protocol:client.protocol_version(),
             client:Mutex::new(Some(Arc::new(client))), stopping:AtomicBool::new(false),
-            busy:AtomicBool::new(false), timed_out:AtomicBool::new(false), disconnected:AtomicBool::new(false),
-            ring:Arc::new(EventRing::new()), operations:Mutex::new(VecDeque::new()), settled:Mutex::new(None),
+            busy:AtomicBool::new(false), timed_out:AtomicBool::new(false), generation:AtomicU64::new(0), admission:Mutex::new(()), disconnected:AtomicBool::new(false),
+            ring:Arc::new(EventRing::new()), operations:Mutex::new(VecDeque::new()),
         });
         let weak = Arc::downgrade(&session);
         thread::spawn(move || {
@@ -158,16 +163,7 @@ impl Manager {
                     Event::UnmatchedResponse(r) => serde_json::to_value(r).unwrap_or(Value::Null),
                     Event::Undecodable { .. } => json!({"type":"bridge_decode_error"}),
                 };
-                match value.get("type").and_then(Value::as_str) {
-                    Some("prompt_result") => {
-                        *lock(&session.settled) = value.get("sessionSettled").and_then(Value::as_bool);
-                        if session.timed_out.load(Ordering::SeqCst) { session.busy.store(false,Ordering::SeqCst); }
-                    }
-                    Some("session_settled") => *lock(&session.settled) = Some(true),
-                    Some("agent_start") => *lock(&session.settled) = Some(false),
-                    _ => {}
-                }
-                session.ring.push(value);
+                session.record_event(value);
             }
             if let Some(session) = weak.upgrade() {
                 session.disconnected.store(true,Ordering::SeqCst);
@@ -187,9 +183,12 @@ impl Manager {
         if message.len()>MAX_PROMPT_BYTES { bail!("prompt_too_large (128 KiB maximum)"); }
         let session = self.session(&args)?;
         let client = session.client()?;
-        if session.busy.compare_exchange(false,true,Ordering::SeqCst,Ordering::SeqCst).is_err() { bail!("busy"); }
-        *lock(&session.settled)=None;
-        session.timed_out.store(false,Ordering::SeqCst);
+        {
+            let _admission=lock(&session.admission);
+            if session.busy.compare_exchange(false,true,Ordering::SeqCst,Ordering::SeqCst).is_err() { bail!("busy"); }
+            session.generation.fetch_add(1,Ordering::SeqCst);
+            session.timed_out.store(false,Ordering::SeqCst);
+        }
         let op=Arc::new(Operation {id:self.id("operation"),result:Mutex::new(None),changed:Condvar::new()});
         {
             let mut operations=lock(&session.operations);
@@ -202,7 +201,6 @@ impl Manager {
             let outcome=client.prompt_and_wait(&PromptCommand {message,images:None,streaming_behavior:None},WORKER_TIMEOUT);
             let value=match outcome {
                 Ok(turn) => {
-                    if let Some(ref result)=turn.result { *lock(&task_session.settled)=Some(result.session_settled); }
                     let (text,truncated)=bounded_text(turn.assistant_text);
                     json!({"operationId":task_op.id,"status":"finished",
                         "assistant_text":text,"assistantTextTruncated":truncated,"result":turn.result})
@@ -213,10 +211,10 @@ impl Manager {
             };
             // An SDK timeout does not prove the model stopped. Keep the session guarded
             // against another normal prompt until it is explicitly aborted or stopped.
-            if value["status"]!="running_or_unknown" { task_session.busy.store(false,Ordering::SeqCst); }
-            else {
-                task_session.timed_out.store(true,Ordering::SeqCst);
-                if *lock(&task_session.settled)==Some(true) {task_session.busy.store(false,Ordering::SeqCst);}
+            {
+                let _admission=lock(&task_session.admission);
+                if value["status"]!="running_or_unknown" { task_session.busy.store(false,Ordering::SeqCst); }
+                else { task_session.timed_out.store(true,Ordering::SeqCst); }
             }
             *lock(&task_op.result)=Some(value.clone());
             task_op.changed.notify_all();
@@ -245,9 +243,22 @@ impl Manager {
 
     pub fn status(&self,args: Value)->Result<Value> {
         let session=self.session(&args)?;
+        let generation=session.generation.load(Ordering::SeqCst);
         let mut summary=session.summary();
         match session.client()?.call(&GetStateCommand {}) {
-            Ok(state)=>summary["state"]=serde_json::to_value(state)?,
+            Ok(state)=>{
+                let _admission=lock(&session.admission);
+                let same_generation=generation==session.generation.load(Ordering::SeqCst);
+                if same_generation && session.timed_out.load(Ordering::SeqCst) && state.is_settled {
+                    session.busy.store(false,Ordering::SeqCst);
+                }
+                summary=session.summary();
+                if same_generation && !session.busy.load(Ordering::SeqCst) {
+                    summary["sessionSettled"]=json!(state.is_settled);
+                    summary["status"]=json!(if state.is_settled {"settled"} else if state.is_streaming {"running"} else {"unknown"});
+                }
+                summary["state"]=serde_json::to_value(state)?;
+            },
             Err(error)=>{summary["state"]=Value::Null;summary["stateError"]=json!(rpc_error(&error));}
         }
         Ok(summary)
@@ -256,13 +267,9 @@ impl Manager {
     pub fn abort(&self,args: Value)->Result<Value> {
         let session=self.session(&args)?;
         session.client()?.call(&AbortCommand {}).map_err(|e|anyhow!("abort: {}",rpc_error(&e)))?;
-        if session.timed_out.load(Ordering::SeqCst) {
-            if let Ok(state)=session.client()?.call(&GetStateCommand {}) {
-                if !state.is_streaming && !state.is_compacting {session.busy.store(false,Ordering::SeqCst);}
-            }
-        }
         // Acknowledgement requests cancellation, not proof that the agent settled.
-        Ok(json!({"session":session.id,"abortRequested":true,"sessionSettled":*lock(&session.settled)}))
+        let state=self.status(args).unwrap_or_else(|_|session.summary());
+        Ok(json!({"session":session.id,"abortRequested":true,"sessionSettled":state["sessionSettled"]}))
     }
 
     pub fn stop(&self,args: Value)->Result<Value> {
@@ -354,8 +361,8 @@ mod tests {
         let session=Arc::new(Session {
             id:"test".into(),model:"fake".into(),cwd:PathBuf::from("/tmp"),pid:None,protocol:1,
             client:Mutex::new(Some(Arc::new(client))),stopping:AtomicBool::new(false),
-            busy:AtomicBool::new(false),timed_out:AtomicBool::new(false),disconnected:AtomicBool::new(false),
-            ring:Arc::new(EventRing::new()),operations:Mutex::new(VecDeque::new()),settled:Mutex::new(None),
+            busy:AtomicBool::new(false),timed_out:AtomicBool::new(false),generation:AtomicU64::new(0),admission:Mutex::new(()),disconnected:AtomicBool::new(false),
+            ring:Arc::new(EventRing::new()),operations:Mutex::new(VecDeque::new()),
         });
         lock(&manager.inner.sessions).insert("test".into(),session.clone());
         let result=manager.send(json!({"session":"test","message":"hello","timeout_ms":0})).unwrap();
@@ -386,6 +393,27 @@ mod tests {
         assert!(text.unwrap().len()<=64*1024);
     }
 
+    #[test]
+    fn stale_terminal_events_cannot_settle_a_new_prompt() {
+        let session=Session {
+            id:"race".into(),model:"fake".into(),cwd:PathBuf::from("/tmp"),pid:None,protocol:2,
+            client:Mutex::new(None),stopping:AtomicBool::new(false),
+            busy:AtomicBool::new(true),timed_out:AtomicBool::new(false),generation:AtomicU64::new(2),
+            admission:Mutex::new(()),disconnected:AtomicBool::new(false),
+            ring:Arc::new(EventRing::new()),operations:Mutex::new(VecDeque::new()),
+        };
+        // The first prompt completed in the SDK; its receiver events arrive after
+        // prompt two has already been admitted. They must remain historical only.
+        session.record_event(json!({"type":"prompt_result","id":"old","sessionSettled":true}));
+        session.record_event(json!({"type":"session_settled"}));
+        let state=session.summary();
+        assert_eq!(state["status"],"running");
+        assert_eq!(state["sessionSettled"],Value::Null);
+        assert_eq!(state["busy"],true);
+        session.busy.store(false,Ordering::SeqCst);
+        assert_eq!(session.summary()["sessionSettled"],Value::Null);
+    }
+
     #[cfg(unix)]
     #[test]
     fn stop_reaps_a_child_even_when_abort_never_settles() {
@@ -402,8 +430,8 @@ for line in sys.stdin:
         let session=Arc::new(Session {
             id:"process-test".into(),model:"fake".into(),cwd:PathBuf::from("/tmp"),pid,protocol:1,
             client:Mutex::new(Some(Arc::new(client))),stopping:AtomicBool::new(false),
-            busy:AtomicBool::new(false),timed_out:AtomicBool::new(false),disconnected:AtomicBool::new(false),
-            ring:Arc::new(EventRing::new()),operations:Mutex::new(VecDeque::new()),settled:Mutex::new(None),
+            busy:AtomicBool::new(false),timed_out:AtomicBool::new(false),generation:AtomicU64::new(0),admission:Mutex::new(()),disconnected:AtomicBool::new(false),
+            ring:Arc::new(EventRing::new()),operations:Mutex::new(VecDeque::new()),
         });
         let manager=Manager::default();
         lock(&manager.inner.sessions).insert(session.id.clone(),session);

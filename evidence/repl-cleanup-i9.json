@@ -1,0 +1,7 @@
+{
+  "test": "repl_ctrl_c_idle",
+  "passed": true,
+  "bridgeExitCode": 0,
+  "childGone": true,
+  "promptsSent": 0
+}
