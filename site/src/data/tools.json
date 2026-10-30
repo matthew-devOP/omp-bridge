@@ -1,109 +1,333 @@
 {
-  "note": "Example responses are real, from demo/ and evidence/ transcripts (v1) — not invented.",
-  "tools": [
-    {
-      "name": "omp_start",
-      "since": "v1",
-      "desc": "Spawn an isolated omp RPC session. The model goes in argv at spawn — an omp with no resolvable model can exit before `ready`, and nothing after spawn can fix a dead process.",
-      "input": { "cwd": "string?", "model": "string?  (default via OMP_BRIDGE_MODEL)", "no_tools": "bool?  inference-only session" },
-      "example": { "model": "opencode-go/deepseek-v4.1-flash", "no_tools": true },
-      "response": { "session": "session-1", "model": "opencode-go/deepseek-v4.1-flash", "protocolVersion": 2, "busy": false, "sessionSettled": null }
-    },
-    {
-      "name": "omp_send",
-      "since": "v1",
-      "desc": "Send a prompt. Synchronous by default: blocks up to timeout_ms (max 25 s) on the turn's own prompt_result. On timeout the status is running_or_unknown — the turn is never aborted and never re-sent.",
-      "input": { "session": "string", "message": "string  (≤128 KiB)", "wait": "bool? = true", "timeout_ms": "u64? ≤ 25000" },
-      "example": { "session": "session-1", "message": "Reply with exactly BRIDGE_E2E_OK and nothing else" },
-      "response": { "operationId": "operation-2", "status": "finished", "assistant_text": "BRIDGE_E2E_OK", "assistantTextTruncated": false, "result": { "status": "completed", "sessionSettled": true } }
-    },
-    {
-      "name": "omp_steer",
-      "since": "v2",
-      "desc": "Redirect the agent mid-turn, on omp's native steer queue — the running task visibly changes direction without losing the turn.",
-      "input": { "session": "string", "message": "string" },
-      "example": { "session": "session-1", "message": "Stop listing files — count only the Rust ones." },
-      "response": { "operationId": "operation-3", "admitted": true }
-    },
-    {
-      "name": "omp_follow_up",
-      "since": "v2",
-      "desc": "Queue a message for after the current turn yields, on omp's follow-up queue.",
-      "input": { "session": "string", "message": "string" },
-      "example": { "session": "session-1", "message": "Now summarize the result in one line." },
-      "response": { "operationId": "operation-4", "admitted": true }
-    },
-    {
-      "name": "omp_take_control",
-      "since": "v2",
-      "desc": "Daemon mode: take the write lease for a shared session. Every reader sees an explicit bridge_control_transfer event — handoffs are visible, never silent.",
-      "input": { "session": "string", "reason": "string" },
-      "example": { "session": "session-1", "reason": "operator handoff" },
-      "response": { "controller": "client-2", "previous": "client-1" }
-    },
-    {
-      "name": "omp_events",
-      "since": "v1",
-      "desc": "Long-poll the session's ring buffer: {cursor, event} envelopes, bounded at 2048 entries / 2 MiB. A reader that fell behind sees an explicit dropped gap — never a silently truncated history.",
-      "input": { "session": "string", "cursor": "u64? = 0", "kinds": "string[]?  read-side filter", "wait_ms": "u64? ≤ 25000" },
-      "example": { "session": "session-1", "cursor": 0, "wait_ms": 20000 },
-      "response": { "events": [ { "cursor": 7, "event": { "type": "prompt_result", "status": "completed", "sessionSettled": true } }, { "cursor": 8, "event": { "type": "session_settled" } } ], "nextCursor": 9, "oldestCursor": 0, "dropped": 0 }
-    },
-    {
-      "name": "omp_status",
-      "since": "v1",
-      "desc": "Session state with distinct answers: running / settled / unknown. Missing data is reported as unknown, never fabricated. State payload is whitelisted — no command catalogs.",
-      "input": { "session": "string" },
-      "example": { "session": "session-1" },
-      "response": { "session": "session-1", "busy": false, "stopping": false, "sessionSettled": true, "operations": [ { "operationId": "operation-2", "status": "finished" } ] }
-    },
-    {
-      "name": "omp_messages",
-      "since": "v2",
-      "desc": "The session transcript, paginated with a stable cursor — mapped on omp's paged history API.",
-      "input": { "session": "string", "cursor": "string?" },
-      "example": { "session": "session-1" },
-      "response": { "messages": [ { "role": "user" }, { "role": "assistant" } ], "nextCursor": null }
-    },
-    {
-      "name": "omp_set_model",
-      "since": "v2",
-      "desc": "Switch the live session to another model from the provider catalog.",
-      "input": { "session": "string", "model": "string  provider/modelId" },
-      "example": { "session": "session-1", "model": "opencode-go/deepseek-v4.1-flash" },
-      "response": { "model": "opencode-go/deepseek-v4.1-flash" }
-    },
-    {
-      "name": "omp_compact",
-      "since": "v2",
-      "desc": "Trigger omp's context compaction for a long-running session.",
-      "input": { "session": "string" },
-      "example": { "session": "session-1" },
-      "response": { "compacted": true }
-    },
-    {
-      "name": "omp_abort",
-      "since": "v1",
-      "desc": "Abort the current turn; the session stays alive. The acknowledgement requests cancellation — it is not proof the agent settled, and the bridge says so.",
-      "input": { "session": "string" },
-      "example": { "session": "session-1" },
-      "response": { "session": "session-1", "abortRequested": true, "sessionSettled": null }
-    },
-    {
-      "name": "omp_stop",
-      "since": "v1",
-      "desc": "Tear down the whole omp process group. stopped: true only after a confirmed teardown — otherwise an honest error with a retrySafe hint.",
-      "input": { "session": "string" },
-      "example": { "session": "session-1" },
-      "response": { "session": "session-1", "stopped": true }
-    },
-    {
-      "name": "omp_list",
-      "since": "v1",
-      "desc": "Sessions owned by this bridge process (or this daemon, in shared mode).",
-      "input": {},
-      "example": {},
-      "response": { "sessions": [ { "session": "session-1", "model": "opencode-go/deepseek-v4.1-flash", "busy": false } ], "scope": "this_bridge_process" }
+ "note": "Descriptions and input schemas are the actual MCP tools/list capture (evidence/v2/mcp-tool-schemas.json, omp-bridge 0.2.0). Responses marked real come from committed transcripts/evidence; responses marked illustrative follow the shipped shape but were not captured from a live run.",
+ "serverInfo": {
+  "name": "omp-bridge",
+  "version": "0.2.0"
+ },
+ "tools": [
+  {
+   "name": "omp_start",
+   "since": "v1",
+   "desc": "Start an Oh My Pi RPC v2 session. Private by default; daemon mode shares sessions with an exclusive controller lease.",
+   "input": {
+    "cwd": "string? — Existing working directory for the agent. Defaults to bridge working directory.",
+    "model": "string? — Provider/model identifier, passed at process startup.",
+    "no_tools": "boolean? — Disable tools for a minimal inference-only smoke test. Default false."
+   },
+   "example": {
+    "model": "opencode-go/deepseek-v4.1-flash",
+    "no_tools": true
+   },
+   "response": {
+    "session": "session-1",
+    "model": "opencode-go/deepseek-v4.1-flash",
+    "protocolVersion": 2,
+    "busy": false,
+    "sessionSettled": null
+   },
+   "responseKind": "real",
+   "responseSource": "demo/claude-m2-e2e-transcript.txt"
+  },
+  {
+   "name": "omp_send",
+   "since": "v1",
+   "desc": "Send a prompt. Returns a bridge operationId; timeout means running_or_unknown, never implicit abort or retry.",
+   "input": {
+    "message": "string",
+    "mode": "string? — Normal prompt by default; use dedicated steer/follow-up tools while active.",
+    "session": "string",
+    "streaming_behavior": "string? — Queue a prompt exactly once while streaming: steer or followUp.",
+    "timeout_ms": "integer? — At most 25000 ms. Timeout never aborts or retries the prompt.",
+    "wait": "boolean? — Wait for result up to timeout_ms; false returns an operationId immediately."
+   },
+   "example": {
+    "session": "session-1",
+    "message": "Reply with exactly BRIDGE_E2E_OK and nothing else"
+   },
+   "response": {
+    "operationId": "operation-2",
+    "status": "finished",
+    "assistant_text": "BRIDGE_E2E_OK",
+    "assistantTextTruncated": false,
+    "result": {
+     "status": "completed",
+     "sessionSettled": true
     }
-  ]
+   },
+   "responseKind": "real",
+   "responseSource": "demo/claude-m2-e2e-transcript.txt"
+  },
+  {
+   "name": "omp_steer",
+   "since": "v2",
+   "desc": "Steer a running agent at its next step. Sends exactly one RPC steer, never a duplicate fallback prompt.",
+   "input": {
+    "session": "string",
+    "text": "string — Message to steer or queue, exactly once."
+   },
+   "example": {
+    "session": "session-1",
+    "text": "Stop listing files — count only the Rust ones."
+   },
+   "response": {
+    "admitted": true,
+    "queue": "steering",
+    "session": "session-1"
+   },
+   "responseKind": "real",
+   "responseSource": "evidence/v2/steer-live.json"
+  },
+  {
+   "name": "omp_follow_up",
+   "since": "v2",
+   "desc": "Queue a follow-up for when the agent would otherwise stop. Admission does not mean completion.",
+   "input": {
+    "session": "string",
+    "text": "string — Message to steer or queue, exactly once."
+   },
+   "example": {
+    "session": "session-1",
+    "text": "Now summarize the result in one line."
+   },
+   "response": {
+    "admitted": true,
+    "queue": "followUp",
+    "session": "session-1"
+   },
+   "responseKind": "real",
+   "responseSource": "evidence/v2/steer-live.json"
+  },
+  {
+   "name": "omp_promote_queued_message",
+   "since": "v2",
+   "desc": "Promote a matching queued follow-up into steering without sending it again. Inspect promoted, not object truthiness.",
+   "input": {
+    "session": "string",
+    "text": "string — Message to steer or queue, exactly once."
+   },
+   "example": {
+    "session": "session-1",
+    "text": "Now summarize the result in one line."
+   },
+   "response": {
+    "promoted": true,
+    "session": "session-1"
+   },
+   "responseKind": "illustrative",
+   "responseSource": null
+  },
+  {
+   "name": "omp_take_control",
+   "since": "v2",
+   "desc": "Explicitly take the exclusive controller lease for a shared daemon session. Every transfer records its reason in the event stream.",
+   "input": {
+    "reason": "string — Human-readable explanation recorded in the controller transfer event.",
+    "session": "string"
+   },
+   "example": {
+    "session": "session-1",
+    "reason": "operator handoff"
+   },
+   "response": {
+    "controller": {
+     "clientId": "c-7f3a",
+     "name": "claude"
+    },
+    "previousController": {
+     "clientId": "c-91",
+     "name": "codex"
+    },
+    "leaseEpoch": 2
+   },
+   "responseKind": "illustrative",
+   "responseSource": null
+  },
+  {
+   "name": "omp_events",
+   "since": "v1",
+   "desc": "Read bounded session events with a cursor and explicit dropped-history indication. Inspect prompt_result.sessionSettled or session_settled to establish settlement.",
+   "input": {
+    "cursor": "integer? — Next event cursor to read, initially zero.",
+    "kinds": "array? — Filter this read only; empty means all kinds.",
+    "session": "string",
+    "wait_ms": "integer? — Long-poll at most 25000 ms."
+   },
+   "example": {
+    "session": "session-1",
+    "cursor": 0,
+    "wait_ms": 20000
+   },
+   "response": {
+    "events": [
+     {
+      "cursor": 7,
+      "event": {
+       "type": "prompt_result",
+       "status": "completed",
+       "sessionSettled": true
+      }
+     },
+     {
+      "cursor": 8,
+      "event": {
+       "type": "session_settled"
+      }
+     }
+    ],
+    "nextCursor": 9,
+    "oldestCursor": 0,
+    "dropped": 0
+   },
+   "responseKind": "real",
+   "responseSource": "demo/claude-m2-e2e-transcript.txt"
+  },
+  {
+   "name": "omp_status",
+   "since": "v1",
+   "desc": "Get authoritative agent state and bridge operation outcomes. Completion and session settlement are distinct.",
+   "input": {
+    "session": "string"
+   },
+   "example": {
+    "session": "session-1"
+   },
+   "response": {
+    "session": "session-1",
+    "busy": false,
+    "stopping": false,
+    "sessionSettled": true,
+    "operations": [
+     {
+      "operationId": "operation-2",
+      "status": "finished"
+     }
+    ]
+   },
+   "responseKind": "real",
+   "responseSource": "demo/claude-m2-e2e-transcript.txt"
+  },
+  {
+   "name": "omp_messages",
+   "since": "v2",
+   "desc": "Read paginated message history with a stable cursor. Available to observers as well as the controller.",
+   "input": {
+    "cursor": "string? — Stable page cursor returned by the previous call.",
+    "limit": "integer? — Bounded page size, maximum 100.",
+    "offset": "integer? — Legacy offset for starting without a cursor.",
+    "session": "string"
+   },
+   "example": {
+    "session": "session-1",
+    "offset": 0,
+    "limit": 50
+   },
+   "response": {
+    "messages": [
+     {
+      "role": "user"
+     },
+     {
+      "role": "assistant"
+     }
+    ],
+    "total": 2,
+    "offset": 0
+   },
+   "responseKind": "illustrative",
+   "responseSource": null
+  },
+  {
+   "name": "omp_set_model",
+   "since": "v2",
+   "desc": "Switch the session model by provider and model_id. Requires the controller lease in daemon mode.",
+   "input": {
+    "model_id": "string",
+    "provider": "string",
+    "session": "string"
+   },
+   "example": {
+    "session": "session-1",
+    "provider": "opencode-go",
+    "model_id": "deepseek-v4.1-flash"
+   },
+   "response": {
+    "operationId": "operation-5",
+    "model": "opencode-go/deepseek-v4.1-flash"
+   },
+   "responseKind": "illustrative",
+   "responseSource": null
+  },
+  {
+   "name": "omp_compact",
+   "since": "v2",
+   "desc": "Compact conversation context with optional instructions; invokes the model and may consume provider quota.",
+   "input": {
+    "instructions": "string?",
+    "session": "string"
+   },
+   "example": {
+    "session": "session-1"
+   },
+   "response": {
+    "operationId": "operation-6",
+    "status": "running_or_unknown"
+   },
+   "responseKind": "illustrative",
+   "responseSource": null
+  },
+  {
+   "name": "omp_abort",
+   "since": "v1",
+   "desc": "Abort the current agent turn without stopping the process.",
+   "input": {
+    "session": "string"
+   },
+   "example": {
+    "session": "session-1"
+   },
+   "response": {
+    "session": "session-1",
+    "abortRequested": true,
+    "sessionSettled": null
+   },
+   "responseKind": "illustrative",
+   "responseSource": null
+  },
+  {
+   "name": "omp_stop",
+   "since": "v1",
+   "desc": "Stop the session. stopped=true only after confirmed process teardown.",
+   "input": {
+    "session": "string"
+   },
+   "example": {
+    "session": "session-1"
+   },
+   "response": {
+    "session": "session-1",
+    "stopped": true
+   },
+   "responseKind": "real",
+   "responseSource": "demo/codex-i9-e2e-transcript.txt"
+  },
+  {
+   "name": "omp_list",
+   "since": "v1",
+   "desc": "List sessions: private to this process by default, shared when connected to a daemon.",
+   "input": {},
+   "example": {},
+   "response": {
+    "sessions": [
+     {
+      "session": "session-1",
+      "model": "opencode-go/deepseek-v4.1-flash",
+      "busy": false
+     }
+    ],
+    "scope": "this_bridge_process"
+   },
+   "responseKind": "real",
+   "responseSource": "evidence/mcp-smoke-i9-final.json"
+  }
+ ]
 }

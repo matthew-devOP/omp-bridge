@@ -1,10 +1,10 @@
 {
-  "note": "Real event sequences from evidence/ and demo/ (v1, 2026-10-30). Timings scaled ~2x faster for replay.",
+  "note": "Event sequences taken verbatim from evidence/ and demo/ (v1, 2026-10-30). Per-event timings are reconstructed for the animation: the v1 evidence records outcomes and total durations, not per-event timestamps.",
   "scenes": [
     {
       "id": "codex-v1",
       "title": "Codex CLI → omp-bridge (i9)",
-      "source": "evidence/codex-i9-final.json · demo/codex-i9-e2e-transcript.txt",
+      "source": "evidence/codex-i9-final.json · demo/codex-i9-e2e-transcript.txt · timings reconstructed",
       "events": [
         { "t": 0, "kind": "call", "text": "omp_start  model=opencode-go/deepseek-v4.1-flash  no_tools=true" },
         { "t": 400, "kind": "ready", "text": "ready  protocol v2 negotiated · session-1" },
@@ -22,7 +22,7 @@
     {
       "id": "claude-v1",
       "title": "Claude Code → omp-bridge (M2)",
-      "source": "demo/claude-m2-e2e-transcript.txt",
+      "source": "demo/claude-m2-e2e-transcript.txt · timings reconstructed",
       "events": [
         { "t": 0, "kind": "call", "text": "omp_start  model=opencode-go/deepseek-v4.1-flash" },
         { "t": 400, "kind": "ready", "text": "ready  protocol v2 · session-1 · pid assigned" },

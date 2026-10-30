@@ -1,7 +1,7 @@
 # The challenge behind v1
 
 `v1` (commit `08eb253`) is the first result of a timed, one-hour challenge run on
-2026-10-30: a friendly head-to-head between Matthew (with his harness) and another
+2026-10-30: a friendly head-to-head between the repository owner (with their harness) and another
 developer (with theirs). Each side used a Claude Code session and a Codex CLI session. This file
 records the task exactly as both agents received it, and the end-to-end timeline.
 
